@@ -20,6 +20,12 @@
     "https://claude.ai/*",
     "https://chatgpt.com/*",
     "https://copilot.microsoft.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.deepseek.com/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://api.moonshot.cn/*",
     "http://127.0.0.1/*",
     "ws://127.0.0.1/*"
   ],

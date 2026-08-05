@@ -177,6 +177,18 @@ restart the bridge.
   existing installations.
 - **Microsoft Copilot support:** Copilot at `copilot.microsoft.com` is now
   available in the provider list and uses the modern semantic chat adapter.
+- **Deterministic script fixer:** `scan_script` reports mechanical issues
+  (deprecated APIs, compound assignments, redundant booleans, ClassName checks,
+  while-loops, `Instance.new` with parent, `math.random`, Lerp wait-loops, messy
+  indentation) and `fix_script` applies them deterministically in Studio with
+  full undo (Ctrl+Z). A Syntax Shield skips any rewrite that would unbalance a
+  script's blocks and brackets, and every fix is reported as a visible change.
+- **AI-to-AI help (`ask_ai`):** hard sub-problems can be sent to a second model
+  (OpenAI, Claude, Gemini, DeepSeek, Qwen or Kimi) using your own API key,
+  stored only in this browser. Configure it in the extension popup.
+- **Per-command AI access:** the RLScript panel now lists every tool and skill
+  individually, so you can disable exactly the commands you do not want the AI
+  to use. Disabled commands are hidden from the AI and refused if still called.
 
 ## New in 1.5.1
 

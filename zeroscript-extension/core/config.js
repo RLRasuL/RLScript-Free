@@ -193,6 +193,59 @@ const ZS = (() => {
     })
   });
 
+  // Deterministic, token-free Luau code-refactoring rules shared by the
+  // scan_script (read-only) and fix_script (applying) commands. The rewrites
+  // themselves are implemented by the Luau engine embedded in main.js
+  // (buildScriptEngineCode); this table is the catalogue used to validate the
+  // tool's "rules" parameter and to advertise the available rules.
+  const FIX_RULES = Object.freeze([
+    Object.freeze({
+      id: "deprecated_api",
+      category: "deprecation",
+      description: "Update deprecated Roblox APIs: FindPartOnRay* → workspace:Raycast, mouse.KeyDown/Button1Down → UserInputService, Debris:AddItem → task.delay, wait()/spawn()/delay() → task.*, :remove() → :Destroy(), :wait()/:connect() capitalization, JumpPower → JumpHeight, .Pitch → .PlaybackSpeed, .Rotation → .Orientation, plus the standard deprecation list.",
+    }),
+    Object.freeze({
+      id: "compound_assignments",
+      category: "refactor",
+      description: "Convert x = x + y style lines into compound operators (x += y, x ..= y). Never touches 'local' declarations.",
+    }),
+    Object.freeze({
+      id: "redundant_booleans",
+      category: "refactor",
+      description: "Remove redundant boolean comparisons: x == true → x, x == false → not x, x ~= true → not x, x ~= false → x.",
+    }),
+    Object.freeze({
+      id: "isa_implementor",
+      category: "refactor",
+      description: "Replace .ClassName == \"Type\" checks with :IsA(\"Type\") (both quote styles).",
+    }),
+    Object.freeze({
+      id: "proper_loops",
+      category: "refactor",
+      description: "Convert repeat...until counter loops to proper for loops (or inverted while loops when the condition cannot become a for).",
+    }),
+    Object.freeze({
+      id: "instance_new_optimizer",
+      category: "performance",
+      description: "Move .Parent assignments to the bottom of Instance.new() / :Clone() property setup blocks to reduce rendering lag.",
+    }),
+    Object.freeze({
+      id: "rng_modernizer",
+      category: "modernization",
+      description: "Replace math.random(a, b) with _rng:NextInteger(a, b), math.random(a) with _rng:NextInteger(1, a), math.random() with _rng:NextNumber(), and inject local _rng = Random.new().",
+    }),
+    Object.freeze({
+      id: "auto_tweener",
+      category: "modernization",
+      description: "Replace short wait-loop tweens (CFrame/Size/Transparency/Position changes inside for/repeat loops with task.wait) with a single TweenService:Create(...):Play().",
+    }),
+    Object.freeze({
+      id: "lines_organization",
+      category: "format",
+      description: "Organize lines: trim trailing whitespace, normalize spacing around operators/commas/equals, recompute indentation from actual block structure, and normalize blank lines.",
+    }),
+  ]);
+
   // These commands are local to the extension and do not require a new bridge
   // server. They are advertised alongside the Roblox commands so every AI can
   // discover the skill loader and the non-vision analysis check.
@@ -224,6 +277,64 @@ const ZS = (() => {
         }),
         required: Object.freeze([])
       })
+    }),
+    Object.freeze({
+      name: "scan_script",
+      description: "Read-only deprecation/style scanner: list deprecated API usage and fixable style issues across the scripts under a scope, as script → line → rule → snippet matches. Never writes.",
+      inputSchema: Object.freeze({
+        type: "object",
+        properties: Object.freeze({
+          scope: Object.freeze({
+            type: "string",
+            description: "Optional dot-notation root such as game or game.ServerScriptService. Defaults to game."
+          }),
+          rules: Object.freeze({
+            type: "array",
+            description: "Optional subset of rule ids to scan for. Omit for all. Valid ids: deprecated_api, compound_assignments, redundant_booleans, isa_implementor, proper_loops, instance_new_optimizer, rng_modernizer, auto_tweener, lines_organization."
+          })
+        }),
+        required: Object.freeze([])
+      })
+    }),
+    Object.freeze({
+      name: "fix_script",
+      description: "Deterministic, token-free fixer for ONE script: applies the requested refactor rules (deprecated APIs, compound assignments, redundant booleans, :IsA checks, proper loops, Instance.new() optimization, RNG modernization, auto-tweening, line organization) and auto-applies the result in Studio with native undo.",
+      inputSchema: Object.freeze({
+        type: "object",
+        properties: Object.freeze({
+          script_path: Object.freeze({
+            type: "string",
+            description: "REQUIRED. Dot-notation path of the script to fix, e.g. game.ServerScriptService.MyScript."
+          }),
+          rules: Object.freeze({
+            type: "array",
+            description: "Optional subset of rule ids to apply. Omit for all. Valid ids: deprecated_api, compound_assignments, redundant_booleans, isa_implementor, proper_loops, instance_new_optimizer, rng_modernizer, auto_tweener, lines_organization."
+          }),
+          syntax_shield: Object.freeze({
+            type: "boolean",
+            description: "Optional. Block/bracket balance check before every write; a rewrite that would unbalance the script is skipped and reported, never written. Defaults to the user's Syntax Shield setting (on). Pass false only when the user explicitly asks to disable it."
+          })
+        }),
+        required: Object.freeze(["script_path"])
+      })
+    }),
+    Object.freeze({
+      name: "ask_ai",
+      description: "Send one self-contained question or code to a DIFFERENT model (the provider the user configured in the RLScript popup under AI-to-AI help, using their own API key) and return its answer as text. Saves main-model reasoning tokens on hard sub-problems.",
+      inputSchema: Object.freeze({
+        type: "object",
+        properties: Object.freeze({
+          question: Object.freeze({
+            type: "string",
+            description: "REQUIRED. Self-contained question (paste the code you need reviewed - the other model has no Studio access)."
+          }),
+          model: Object.freeze({
+            type: "string",
+            description: "Optional model override; defaults to the model configured in the popup for the selected provider."
+          })
+        }),
+        required: Object.freeze(["question"])
+      })
     })
   ]);
 
@@ -241,16 +352,18 @@ const ZS = (() => {
     return null;
   }
 
-  function skillPrompt(enabled = true) {
+  function skillPrompt(enabled = true, disabledSkills = []) {
     if (!enabled) {
       return "SKILLS: RLScript skills are disabled by the user for this session. Do not call `use_skill` or the Roblox Studio `skill` command.";
     }
-    const names = Object.entries(BUILTIN_SKILLS)
-      .map(([name, skill]) => `- ${name}: ${skill.description}`)
-      .join("\n");
-    const nativeNames = Object.entries(NATIVE_SKILLS)
-      .map(([name, skill]) => `- ${name}: ${skill.description}`)
-      .join("\n");
+    const disabled = new Set((disabledSkills || []).map((s) => String(s).trim().toLowerCase()));
+    const list = (table) =>
+      Object.entries(table)
+        .filter(([name]) => !disabled.has(String(name).toLowerCase()))
+        .map(([name, skill]) => `- ${name}: ${skill.description}`)
+        .join("\n");
+    const names = list(BUILTIN_SKILLS);
+    const nativeNames = list(NATIVE_SKILLS);
     return "SKILLS: RLScript supports on-demand local skills. After a Roblox code change, load the matching skill with `use_skill` and follow its instructions. " +
       "`use_skill` ALSO loads Roblox's native Studio Assistant skills by name (it delegates to the Studio `skill` command, so no separate call is needed) - load one whenever the user's request matches its workflow: e.g. unit tests, scene/performance analysis, docs lookup, device testing, or creating a custom skill.\n" +
       "Do not call `screen_capture` for a skill that can be completed with text tools when this AI cannot see images.\n" +
@@ -265,6 +378,8 @@ const ZS = (() => {
       customPrompt = "",
       allowAiTools = true,
       allowAiSkills = true,
+      disabledTools = [],
+      disabledSkills = [],
     } = opts;
     const robloxLanguageRule =
       "ROBLOX LANGUAGE REQUIREMENT: Roblox scripting uses Luau, not generic Lua. " +
@@ -281,7 +396,9 @@ const ZS = (() => {
       allowAiSkills
         ? "RLScript skills are enabled. Load a matching skill only when its workflow is relevant."
         : "RLScript skills are disabled by the user. Do not call use_skill or the Roblox Studio skill command.",
-    ].join("\n");
+      (disabledTools.length > 0 ? "Individually disabled RLScript tools (do NOT call these): " + disabledTools.join(", ") + "." : ""),
+      (disabledSkills.length > 0 ? "Individually disabled skills (do NOT load these): " + disabledSkills.join(", ") + "." : ""),
+    ].filter((l) => l).join("\n");
 
     const prompt = `CONTEXT: the user has installed a browser extension called RLScript in their own browser. Here is how it works, so you can use it on their behalf:
 A browser extension (RLScript) is running inside this page. It watches your replies. When it detects a RLScript command in your text, it runs it against one or more connected MCP servers and sends the result back as the next message. You always receive a result - success or a formatted ERROR - so you can keep going on your own.
@@ -326,6 +443,14 @@ ${allowAiSkills ? " - VISUAL PLAYTESTS: when the task involves gameplay, UI, cam
 - On ERROR: read it and adapt - fix the command, try another, or tell the user plainly if it is an environment problem (Studio closed, bridge offline).
 - On a property/attribute/value error (e.g. "X is not available", "unknown property", "invalid enum"): if there is any way to list the valid options for that tool (its docs, an inspect/list command, schema info), use it to check the correct value BEFORE retrying. Never guess blindly a second time.
 
+━━━ THE DETERMINISTIC FIXER (scan_script / fix_script) ━━━
+When the user wants mechanical cleanup of existing scripts - outdated/deprecated APIs (wait()/spawn()/remove()/KeyDown/JumpPower/...), compound-assignment conversion (x = x + 1 → x += 1), redundant booleans (if x == true), string ClassName comparisons (".ClassName == \"X\"" → ":IsA(\"X\")"), while-loop conversion to for-loops, Instance.new("X", parent) optimization, Math.random() → Random.new() modernization, wait-based tween loops → TweenService, or line organization (consistent indentation/blank lines) - do NOT hand-edit these with multi_edit. Run \`scan_script\` to see what matches exist, then \`fix_script\` to apply them deterministically:
+- The fixer is pattern-based and exact - it rewrites only known-safe shapes and never guesses, so the result is far more reliable than a model hand-rewrite.
+- \`fix_script\` writes the fixed source into Studio itself with native undo, so no manual multi_edit diffing is needed after it. Trust its write unless the user asks otherwise.
+- It refuses any rewrite that would unbalance the script (the Syntax Shield) and reports those lines instead - NEVER apply such a rewrite manually afterwards without re-checking; tell the user a line was skipped.
+- These tools are still ONE-command-per-reply like everything else: run scan_script, read the result, then run fix_script in the next reply.
+- The tools you manually created (multi_edit etc.) remain available for the structural/judgment work the fixer cannot do: new systems, game logic, naming changes.
+
 ━━━ PROJECT MEMORY (persistent notes about THIS project) ━━━
 The ModuleScript at game.ServerStorage.ZeroScript.Memory is your long-term memory for this project, saved inside the place. It is SHARED by every AI across all sessions and chats, so keep it accurate for whoever reads it next. Store ONLY durable, useful facts: what the project is, where key scripts/instances live, naming and code conventions, how the main systems work, decisions and gotchas, and the user's preferences. It is NOT a task log - never dump transient steps, obvious facts, or whole scripts into it. Keep it short.
 
@@ -358,7 +483,7 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
       : "";
 
     // The marker leads the prompt; it tags the bootstrap turn for camouflage.
-    return `${SYS_MARKER}\n${robloxLanguageRule}\n\n${accessPrompt}\n\n${skillPrompt(allowAiSkills)}\n\n${prompt}${extra}`;
+    return `${SYS_MARKER}\n${robloxLanguageRule}\n\n${accessPrompt}\n\n${skillPrompt(allowAiSkills, disabledSkills)}\n\n${prompt}${extra}`;
   }
 
   // ── Curated, TESTED usage notes per command ─────────────────────────────────
@@ -440,6 +565,16 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
     script_analysis:
       "Text-first syntax and conservative warning validation for Luau sources. It returns structured errors and warnings such as unknown globals, while explicitly reporting that Roblox's editor-only lint/type diagnostics are not fully exposed by the current MCP API. " +
       "Use it before and after fixes; do not describe its result as a complete Script Analysis window count.",
+    scan_script:
+      "Read-only scan over the scripts under a scope. Returns script → line → rule → snippet matches; a rule id is the FIRST string in each match. " +
+      "Run it BEFORE fix_script to preview, or pass a \"rules\" subset to scan only what the user asked. It never writes - safe to run anytime.",
+    fix_script:
+      "Deterministic refactor of ONE script. script_path is REQUIRED (dot-notation). Defaults to all rules; pass \"rules\" to apply a subset. " +
+      "The result is auto-applied in Studio inside an undoable ChangeHistoryService transaction - after a successful write, the fixed source IS live, do not re-apply with multi_edit. " +
+      "A rule whose rewrite would unbalance the script is skipped and listed in the output (Syntax Shield). It is EXACT and pattern-based: it rewrites only known-safe shapes and never guesses.",
+    ask_ai:
+      "Offloads ONE self-contained question to the model the user configured in the RLScript popup (their own API key - never ask for the key here, and never echo it). " +
+      "Include ALL code the other model needs inside the question text. Returns only the other model's answer as plain text. No response means the user has not configured a key/provider yet - tell them to open the RLScript popup and set it up.",
   };
 
   // A short, clearly-labelled reminder of the available commands, injected under
@@ -484,6 +619,7 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
     BUILTIN_SKILLS,
     NATIVE_SKILLS,
     VIRTUAL_TOOLS,
+    FIX_RULES,
     getSkill,
     getNativeSkill,
     skillPrompt,

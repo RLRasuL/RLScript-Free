@@ -78,8 +78,6 @@
     }, EXPECT);
   }
 
-  // Ko-fi tip link.
-  const KOFI_URL = "https://ko-fi.com/sebattfg";
   // GitHub releases page - where users download the Bridge + start.bat.
   const GITHUB_URL = "https://github.com/RLRasuL/RLScript-Free";
   // Shown in the panel instead of a static "Free" label, so a user's screenshot
@@ -186,6 +184,15 @@
     // Timestamp of the last successful tool-catalogue refresh (see ensureTools).
     toolsAt: 0,
   };
+  // Per-item AI access disable lists (AI access menu's Tools/Skills tabs).
+  // Hoisted to module scope because runTool (the single dispatch choke point)
+  // and the ui IIFE both read/write them.
+  let disabledTools = [];
+  let disabledSkills = [];
+  // Syntax Shield default from the popup setting (true unless the user turned
+  // it off). fix_script consults this when the AI does not pass an explicit
+  // syntax_shield argument.
+  let syntaxShieldDefault = true;
 
   async function waitFor(pred, timeout) {
     const t0 = Date.now();
@@ -779,7 +786,7 @@
   }));
   const enabledLocalVirtualTools = () => LOCAL_VIRTUAL_TOOLS.filter((tool) => {
     if (tool.name === "use_skill") return A.allowAiSkills;
-    if (tool.name === "script_analysis") return A.allowAiTools;
+    if (["script_analysis", "scan_script", "fix_script", "ask_ai"].includes(tool.name)) return A.allowAiTools;
     return true;
   });
   const localVirtualTools = (server) => server === "roblox"
@@ -1173,6 +1180,787 @@ return {
 }`;
   }
 
+  // ── Deterministic fixer engine (scan_script / fix_script) ─────────────────
+  // A single Luau template shared by both tools: mode "scan" reports every
+  // match per rule without touching anything; mode "fix" applies the rules to
+  // ONE script, guards each rule with the Syntax Shield (block/bracket balance,
+  // skippable), and writes the result through ScriptEditorService inside an
+  // undoable ChangeHistoryService transaction. On a write failure the fixed
+  // source is returned so runTool can fall back to multi_edit.
+  // The rule patterns are ported from AutoScriptFixer's own passes (ProperLoops,
+  // IsAImplementor, RefactorInstanceParent, AutoTweener, CompoundAssignments,
+  // UpdateAPI, FormatLines...) - the fixer never rewrites code that only a
+  // language model could parse, it only rewrites known-safe shapes.
+  function buildScriptEngineCode(mode, opts) {
+    const isFix = mode === "fix";
+    const scope = JSON.stringify(String((opts && opts.scope) || "game").trim().slice(0, 200) || "game");
+    const targetPath = JSON.stringify(String((opts && opts.scriptPath) || "").trim().slice(0, 300));
+    const rules = "{" + (opts && Array.isArray(opts.rules) ? opts.rules : []).slice(0, 20).map((r) => JSON.stringify(String(r).trim())).join(", ") + "}";
+    const shield = !(opts && opts.syntaxShield === false);
+    return `-- RLScript deterministic fixer engine (scan/fix)
+local MODE = ${isFix ? '"fix"' : '"scan"'}
+local REQUESTED_RULES = ${rules}
+local SYNTAX_SHIELD = ${shield ? "true" : "false"}
+local SCOPE = ${scope}
+local TARGET_PATH = ${targetPath}
+
+local function resolvePath(path)
+  local current = game
+  for part in string.gmatch(path, "[^%.]+") do
+    if part ~= "game" then
+      if not current then return nil end
+      current = current:FindFirstChild(part)
+    end
+  end
+  return current
+end
+
+local function collectScripts(scope)
+  local root = resolvePath(scope)
+  if not root then return nil end
+  local scripts = {}
+  if root:IsA("LuaSourceContainer") then table.insert(scripts, root) end
+  for _, obj in ipairs(root:GetDescendants()) do
+    if obj:IsA("LuaSourceContainer") and #scripts < 300 then
+      table.insert(scripts, obj)
+    end
+  end
+  table.sort(scripts, function(a, b)
+    return a:GetFullName() < b:GetFullName()
+  end)
+  return scripts
+end
+
+local function splitLines(s)
+  local out = {}
+  for line in (s .. "\\n"):gmatch("([^\\n]*)\\n") do
+    table.insert(out, line)
+  end
+  if #out > 0 and out[#out] == "" then table.remove(out) end
+  return out
+end
+
+local function joinLines(lines)
+  return table.concat(lines, "\\n")
+end
+
+-- Masks comments, long strings and quoted strings with spaces (same length),
+-- so pattern matches on the masked text can be spliced back onto the original
+-- line at identical byte positions.
+local function maskLine(line, blockComment, longString)
+  local output = {}
+  local i = 1
+  while i <= #line do
+    if blockComment then
+      local closeAt = string.find(line, "]]", i, true)
+      if not closeAt then
+        for _ = i, #line do table.insert(output, " ") end
+        return table.concat(output), true, longString
+      end
+      for _ = i, closeAt + 1 do table.insert(output, " ") end
+      i = closeAt + 2
+      blockComment = false
+    elseif longString then
+      local closeAt = string.find(line, "]]", i, true)
+      if not closeAt then
+        for _ = i, #line do table.insert(output, " ") end
+        return table.concat(output), blockComment, true
+      end
+      for _ = i, closeAt + 1 do table.insert(output, " ") end
+      i = closeAt + 2
+      longString = false
+    else
+      local c = string.sub(line, i, i)
+      local nextTwo = string.sub(line, i, i + 1)
+      if c == "-" and nextTwo == "--" then
+        if string.sub(line, i + 2, i + 3) == "[[" then
+          blockComment = true
+          for _ = i, i + 3 do table.insert(output, " ") end
+          i = i + 4
+        else
+          break
+        end
+      elseif c == "[" and nextTwo == "[[" then
+        longString = true
+        for _ = i, i + 1 do table.insert(output, " ") end
+        i = i + 2
+      elseif c == string.char(39) or c == string.char(34) then
+        local quote = c
+        table.insert(output, " ")
+        i = i + 1
+        while i <= #line do
+          local quoted = string.sub(line, i, i)
+          table.insert(output, " ")
+          if quoted == quote then
+            i = i + 1
+            break
+          end
+          i = i + 1
+        end
+      else
+        table.insert(output, c)
+        i = i + 1
+      end
+    end
+  end
+  return table.concat(output), blockComment, longString
+end
+
+local function preMask(lines)
+  local masks = {}
+  local blockComment, longString = false, false
+  for i, line in ipairs(lines) do
+    local masked
+    masked, blockComment, longString = maskLine(line, blockComment, longString)
+    masks[i] = masked
+  end
+  return masks
+end
+
+-- Loose mask: comments and long strings are blanked, but quoted strings stay
+-- visible. Used by rules that need to read the text inside "..." (ClassName
+-- checks, Instance.new classes) while still avoiding comment/string areas.
+local function preMaskLoose(lines)
+  local masks = {}
+  local blockComment, longString = false, false
+  for i, line in ipairs(lines) do
+    local masked = {}
+    local j = 1
+    while j <= #line do
+      if blockComment then
+        local closeAt = string.find(line, "]]", j, true)
+        if not closeAt then
+          for _ = j, #line do table.insert(masked, " ") end
+          break
+        end
+        for _ = j, closeAt + 1 do table.insert(masked, " ") end
+        j = closeAt + 2
+        blockComment = false
+      elseif longString then
+        local closeAt = string.find(line, "]]", j, true)
+        if not closeAt then
+          for _ = j, #line do table.insert(masked, " ") end
+          break
+        end
+        for _ = j, closeAt + 1 do table.insert(masked, " ") end
+        j = closeAt + 2
+        longString = false
+      else
+        local nextTwo = string.sub(line, j, j + 1)
+        if nextTwo == "--" then
+          if string.sub(line, j + 2, j + 3) == "[[" then
+            blockComment = true
+            for _ = j, j + 3 do table.insert(masked, " ") end
+            j = j + 4
+          else
+            break
+          end
+        elseif nextTwo == "[[" then
+          longString = true
+          for _ = j, j + 1 do table.insert(masked, " ") end
+          j = j + 2
+        elseif nextTwo == string.char(92) .. '"' then
+          table.insert(masked, "  ")
+          j = j + 2
+        else
+          table.insert(masked, string.sub(line, j, j))
+          j = j + 1
+        end
+      end
+    end
+    masks[i] = table.concat(masked)
+  end
+  return masks
+end
+
+-- ── Syntax Shield: block/bracket balance of a whole source ──────────────
+local BLOCK_OPEN = { "function", "repeat", "while", "for", "if" }
+local function kwCount(code, kw)
+  local n = 0
+  for _ in code:gmatch("%f[%a_%d]" .. kw .. "%f[^%a_%d]") do n = n + 1 end
+  return n
+end
+local function countOpens(code)
+  local n = 0
+  for _, kw in ipairs(BLOCK_OPEN) do n = n + kwCount(code, kw) end
+  return n
+end
+local function countCloses(code)
+  return kwCount(code, "end") + kwCount(code, "until")
+end
+local function balanceErrors(source)
+  local bracket = {}
+  local depth = 0
+  local ifs, thens = 0, 0
+  local blockComment, longString = false, false
+  for line in (source .. "\\n"):gmatch("([^\\n]*)\\n") do
+    local code
+    code, blockComment, longString = maskLine(line, blockComment, longString)
+    for i = 1, #code do
+      local ch = string.sub(code, i, i)
+      if ch == "(" or ch == "[" or ch == "{" then
+        table.insert(bracket, ch)
+      elseif ch == ")" or ch == "]" or ch == "}" then
+        local top = table.remove(bracket)
+        local want = nil
+        if ch == ")" then want = "("
+        elseif ch == "]" then want = "["
+        else want = "{" end
+        if top ~= want then
+          return "unbalanced bracket '" .. ch .. "'"
+        end
+      end
+    end
+    depth = depth + countOpens(code) - countCloses(code)
+    ifs = ifs + kwCount(code, "if") + kwCount(code, "elseif")
+    thens = thens + kwCount(code, "then")
+    if depth < 0 then return "block closed without an opener (depth " .. depth .. ")" end
+  end
+  if depth ~= 0 then return "unbalanced block keywords (depth " .. depth .. ")" end
+  if thens ~= ifs then return "if/then mismatch (" .. ifs .. " if/elseif vs " .. thens .. " then)" end
+  if #bracket > 0 then return "unclosed brackets" end
+  return nil
+end
+
+-- ── Per-line pattern applier ─────────────────────────────────────────────
+-- Each pattern is {p = <luau pattern>, r = <static replacement>} or
+-- {p, f = function(c1, c2, ...) -> replacement or nil}. A nil return means
+-- "decline this occurrence" (the match is skipped, scanning continues after it).
+local function linePatterns(line, masked, patterns, lineNo, changes)
+  local from = 1
+  for _, pat in ipairs(patterns) do
+    while true do
+      local s, e, c1, c2, c3, c4 = string.find(masked, pat.p, from)
+      if not s then
+        from = 1
+        break
+      end
+      local rep = pat.r
+      if rep == nil and pat.f then rep = pat.f(c1, c2, c3, c4) end
+      if rep == nil then
+        from = e + 1
+      else
+        if rep == "" then rep = " " end
+        table.insert(changes, {
+          line = lineNo,
+          message = pat.msg or "rewrite",
+          before = line,
+          after = string.sub(line, 1, s - 1) .. rep .. string.sub(line, e + 1),
+        })
+        line = string.sub(line, 1, s - 1) .. rep .. string.sub(line, e + 1)
+        masked = string.sub(masked, 1, s - 1) .. rep .. string.sub(masked, e + 1)
+        from = s + #rep
+      end
+    end
+  end
+  return line
+end
+
+-- ── Rule implementations ─────────────────────────────────────────────────
+local RULES = {}
+
+RULES["deprecated_api"] = function(lines, masks)
+  local changes = {}
+  local patterns = {
+    { p = "game%.Workspace", r = "workspace", msg = "game.Workspace -> workspace" },
+    { p = ":remove%s*%(", r = ":Destroy(", msg = ":remove() -> :Destroy()" },
+    { p = ":wait%s*%(", r = ":Wait(", msg = ":wait() -> :Wait()" },
+    { p = ":connect%s*%(", r = ":Connect(", msg = ":connect() -> :Connect()" },
+    { p = ":clone%s*%(", r = ":Clone(", msg = ":clone() -> :Clone()" },
+    { p = ":children%s*%(", r = ":GetChildren(", msg = ":children() -> :GetChildren()" },
+    { p = ":findFirstChild%s*%(", r = ":FindFirstChild(", msg = ":findFirstChild() -> :FindFirstChild()" },
+    { p = ":IsInGroup%s*%(", r = ":IsInGroupAsync(", msg = ":IsInGroup() -> :IsInGroupAsync()" },
+    { p = ":PlayerOwnsAsset%s*%(", r = ":PlayerOwnsAssetAsync(", msg = ":PlayerOwnsAsset() -> :PlayerOwnsAssetAsync()" },
+    { p = ":Preload%s*%(", r = ":PreloadAsync(", msg = ":Preload() -> :PreloadAsync()" },
+    { p = "game%:service%s*%(", r = "game:GetService(", msg = "game:service() -> game:GetService()" },
+    { p = "%.userId%f[^%w_]", r = ".UserId", msg = ".userId -> .UserId" },
+    { p = "%.velocity%f[^%w_]", r = ".Velocity", msg = ".velocity -> .Velocity" },
+    { p = "%.maxTorque%f[^%w_]", r = ".MaxTorque", msg = ".maxTorque -> .MaxTorque" },
+    { p = "%.maxForce%f[^%w_]", r = ".MaxForce", msg = ".maxForce -> .MaxForce" },
+    { p = "%.force%f[^%w_]", r = ".Force", msg = ".force -> .Force" },
+    { p = "%.VelocitySpread", r = ".SpreadAngle", msg = ".VelocitySpread -> .SpreadAngle" },
+    { p = "%.JumpPower%f[^%w_]", r = ".JumpHeight", msg = ".JumpPower -> .JumpHeight" },
+    { p = "%.Pitch%f[^%w_]", r = ".PlaybackSpeed", msg = ".Pitch -> .PlaybackSpeed" },
+    { p = "%.Rotation%f[^%w_]", r = ".Orientation", msg = ".Rotation -> .Orientation" },
+    { p = "%.AngularVelocity%f[^%w_]", r = ".AssemblyAngularVelocity", msg = ".AngularVelocity -> .AssemblyAngularVelocity" },
+    { p = ":SetPrimaryPartCFrame%s*%(", r = ":PivotTo(", msg = ":SetPrimaryPartCFrame() -> :PivotTo()" },
+    { p = ":GetModelCFrame%s*%(", r = ":GetPivot(", msg = ":GetModelCFrame() -> :GetPivot()" },
+    { p = ":FindPartsInRegion3%s*%(", r = ":GetPartsBoundsInBox(", msg = ":FindPartsInRegion3() -> :GetPartsBoundsInBox()" },
+    { p = ":CreateCollisionGroup%s*%(", r = ":RegisterCollisionGroup(", msg = ":CreateCollisionGroup() -> :RegisterCollisionGroup()" },
+    { p = "^wait%s*%(%s*%)", r = "task.wait(0.025)", msg = "wait() -> task.wait(0.025)" },
+    { p = "^wait%s*%(([^%)]+)%)", f = function(a) return "task.wait(" .. a .. ")" end, msg = "wait() -> task.wait()" },
+    { p = "([^%w_.%:])wait%s*%(%s*%)", f = function(a) return a .. "task.wait(0.025)" end, msg = "wait() -> task.wait(0.025)" },
+    { p = "([^%w_.%:])wait%s*%(([^%)]+)%)", f = function(a, b) return a .. "task.wait(" .. b .. ")" end, msg = "wait() -> task.wait()" },
+    { p = "^spawn%s*%(", r = "task.spawn(", msg = "spawn() -> task.spawn()" },
+    { p = "([^%w_.%:])spawn%s*%(", f = function(a) return a .. "task.spawn(" end, msg = "spawn() -> task.spawn()" },
+  }
+  for i, line in ipairs(lines) do
+    local masked = masks[i] or ""
+    if string.match(masked, "%S") then
+      lines[i] = linePatterns(line, masked, patterns, i, changes)
+    end
+  end
+  return lines, changes
+end
+
+RULES["compound_assignments"] = function(lines, masks)
+  local changes = {}
+  for i, line in ipairs(lines) do
+    local masked = masks[i] or ""
+    if string.match(masked, "%S") and not string.match(masked, "^%s*local%s+") then
+      local s, e, ind, v, op, val = string.find(masked, "^(%s*)([%w_%.:%[%]]+)%s*=%s*%2%s*([%+%-%*/%%%^])%s*(.+)$")
+      if not s then
+        s, e, ind, v, val = string.find(masked, "^(%s*)([%w_%.:%[%]]+)%s*=%s*%2%s*%.%.%s*(.+)$")
+      end
+      if s then
+        local rep = op and (ind .. v .. " " .. op .. "= " .. val) or (ind .. v .. " ..= " .. val)
+        table.insert(changes, {
+          line = i,
+          message = "converted to compound assignment",
+          before = line,
+          after = rep,
+        })
+        lines[i] = rep
+      end
+    end
+  end
+  return lines, changes
+end
+
+RULES["redundant_booleans"] = function(lines, masks)
+  local changes = {}
+  local patterns = {
+    { p = "if%s+([%w_%.%:%[%]]+)%s*==%s*true%s*then", f = function(a) return "if " .. a .. " then" end, msg = "== true -> direct check" },
+    { p = "if%s+([%w_%.%:%[%]]+)%s*~=%s*true%s*then", f = function(a) return "if not " .. a .. " then" end, msg = "~= true -> not" },
+    { p = "if%s+([%w_%.%:%[%]]+)%s*==%s*false%s*then", f = function(a) return "if not " .. a .. " then" end, msg = "== false -> not" },
+    { p = "if%s+([%w_%.%:%[%]]+)%s*~=%s*false%s*then", f = function(a) return "if " .. a .. " then" end, msg = "~= false -> direct check" },
+    { p = "return%s+([%w_%.%:%[%]]+)%s*==%s*true", f = function(a) return "return " .. a end, msg = "== true -> direct check" },
+    { p = "return%s+([%w_%.%:%[%]]+)%s*~=%s*true", f = function(a) return "return not " .. a end, msg = "~= true -> not" },
+    { p = "return%s+([%w_%.%:%[%]]+)%s*==%s*false", f = function(a) return "return not " .. a end, msg = "== false -> not" },
+    { p = "return%s+([%w_%.%:%[%]]+)%s*~=%s*false", f = function(a) return "return " .. a end, msg = "~= false -> direct check" },
+  }
+  for i, line in ipairs(lines) do
+    local masked = masks[i] or ""
+    if string.match(masked, "%S") then
+      lines[i] = linePatterns(line, masked, patterns, i, changes)
+    end
+  end
+  return lines, changes
+end
+
+RULES["isa_implementor"] = function(lines, masks)
+  local changes = {}
+  local loose = preMaskLoose(lines)
+  local patterns = {
+    { p = "([%w_%.%:%[%]]+)%.ClassName%s*==%s*\\\"([^\\\"]+)\\\"", f = function(a, b) return a .. ":IsA(\\\"" .. b .. "\\\")" end, msg = ".ClassName == -> :IsA()" },
+    { p = "([%w_%.%:%[%]]+)%.ClassName%s*~=%s*\\\"([^\\\"]+)\\\"", f = function(a, b) return "not " .. a .. ":IsA(\\\"" .. b .. "\\\")" end, msg = ".ClassName ~= -> not :IsA()" },
+  }
+  for i, line in ipairs(lines) do
+    local masked = loose[i] or ""
+    if string.match(masked, "%S") then
+      for _, pat in ipairs(patterns) do
+        while true do
+          local s, e, a, b = string.find(masked, pat.p)
+          if not s then break end
+          local prefix = string.sub(masked, 1, s - 1)
+          local quotes = select(2, prefix:gsub('"', '"'))
+          if quotes % 2 == 1 then
+            masked = string.sub(masked, 1, s - 1) .. string.rep(" ", e - s + 1) .. string.sub(masked, e + 1)
+          else
+            local rep = pat.f(a, b)
+            table.insert(changes, {
+              line = i,
+              message = pat.msg,
+              before = line,
+              after = string.sub(line, 1, s - 1) .. rep .. string.sub(line, e + 1),
+            })
+            line = string.sub(line, 1, s - 1) .. rep .. string.sub(line, e + 1)
+            masked = string.sub(masked, 1, s - 1) .. rep .. string.sub(masked, e + 1)
+          end
+        end
+      end
+      lines[i] = line
+    end
+  end
+  return lines, changes
+end
+
+RULES["rng_modernizer"] = function(lines, masks)
+  local changes = {}
+  local patterns = {
+    { p = "math%.random%s*%(%s*%)", r = "_rng:NextNumber()", msg = "math.random() -> _rng:NextNumber()" },
+    { p = "math%.random%s*%(([^%,%)]+),%s*([^%)]+)%)", f = function(a, b) return "_rng:NextInteger(" .. a .. ", " .. b .. ")" end, msg = "math.random(a, b) -> _rng:NextInteger(a, b)" },
+    { p = "math%.random%s*%(([^%)]+)%)", f = function(a) return "_rng:NextInteger(1, " .. a .. ")" end, msg = "math.random(a) -> _rng:NextInteger(1, a)" },
+  }
+  local anyReplaced = false
+  for i, line in ipairs(lines) do
+    local masked = masks[i] or ""
+    if string.match(masked, "%S") then
+      local before = #changes
+      lines[i] = linePatterns(line, masked, patterns, i, changes)
+      if #changes > before then anyReplaced = true end
+    end
+  end
+  if anyReplaced then
+    local already = false
+    for _, masked in ipairs(masks) do
+      if string.match(masked, "[%w%._]?_rng") then already = true break end
+    end
+    if not already then
+      local insertAt = 1
+      for i, raw in ipairs(lines) do
+        if string.match(raw, "^%s*%-%-") then insertAt = i + 1 else break end
+      end
+      table.insert(lines, insertAt, "local _rng = Random.new()")
+      table.insert(changes, { line = insertAt, message = "hoisted local _rng = Random.new()", before = "", after = "local _rng = Random.new()" })
+    end
+  end
+  return lines, changes
+end
+
+RULES["proper_loops"] = function(lines, masks)
+  local changes = {}
+  local i = 1
+  while i <= #lines do
+    local m = masks[i] or ""
+    local ind, var, start = string.match(m, "^(%s*)local%s+([%w_]+)%s*=%s*([%-%d]+)%s*$")
+    if not ind then
+      i = i + 1
+    else
+      local j = i + 1
+      while j <= #lines and (string.match(masks[j] or "", "^%s*$") or string.match(lines[j], "^%s*%-%-")) do j = j + 1 end
+      local loopMasked = masks[j] or ""
+      local op, limit = string.match(loopMasked, "^%s*while%s+" .. var .. "%s*([<]=)%s*(.+)%s*do%s*$")
+      if not op then
+        i = i + 1
+      else
+        local endAt = nil
+        local ok = true
+        local k = j + 1
+        while k <= #lines do
+          local mk = masks[k] or ""
+          if string.match(mk, "^(%s*)end%s*$") then
+            endAt = k
+            break
+          end
+          if string.match(mk, "%S") then
+            if countOpens(mk) > 0 or countCloses(mk) > 0 or kwCount(mk, "else") > 0 or kwCount(mk, "elseif") > 0 then
+              ok = false
+              break
+            end
+          end
+          k = k + 1
+        end
+        if not ok or not endAt then
+          i = i + 1
+        else
+          local incAt = endAt - 1
+          while incAt > j and (string.match(masks[incAt] or "", "^%s*$") or string.match(lines[incAt], "^%s*%-%-")) do incAt = incAt - 1 end
+          local incMasked = masks[incAt] or ""
+          local inc = string.match(incMasked, "^%s*" .. var .. "%s*=%s*" .. var .. "%s*%+%s*1%s*$")
+            or string.match(incMasked, "^%s*" .. var .. "%s*%+=%s*1%s*$")
+          if not inc then
+            i = i + 1
+          else
+            local usedAfter = false
+            for n = endAt + 1, #lines do
+              if string.match(masks[n] or "", "%f[%a_%d]" .. var .. "%f[^%a_%d]") then usedAfter = true break end
+            end
+            local bodyAssign = false
+            for n = j + 1, incAt - 1 do
+              local mn = masks[n] or ""
+              if string.match(mn, "^%s*" .. var .. "%s*=") or string.match(mn, "%f[%a_%d]" .. var .. "%s*%+=") then bodyAssign = true break end
+            end
+            if usedAfter or bodyAssign then
+              i = i + 1
+            else
+              local replacement = ind .. "for " .. var .. " = " .. start .. ", " .. (limit:match("^%s*(.-)%s*$") or limit) .. (op == "<" and " - 1" or "") .. " do"
+              table.insert(changes, { line = j, message = "while loop -> for loop", before = lines[j], after = replacement })
+              table.insert(changes, { line = i, message = "removed manual counter init (loop now owns it)", before = lines[i], after = "" })
+              table.insert(changes, { line = incAt, message = "removed manual increment (loop now owns it)", before = lines[incAt], after = "" })
+              lines[j] = replacement
+              table.remove(lines, incAt)
+              table.remove(lines, i)
+              masks = preMask(lines)
+              i = i + 1
+            end
+          end
+        end
+      end
+    end
+  end
+  return lines, changes
+end
+
+RULES["instance_new_optimizer"] = function(lines, masks)
+  local changes = {}
+  local loose = preMaskLoose(lines)
+  local i = 1
+  while i <= #lines do
+    local m = loose[i] or ""
+    local s, e, ind, name, class, parent = string.find(m, "^(%s*)local%s+([%w_]+)%s*=%s*Instance%.new%s*%(\\\"([^\\\"]+)\\\"%s*,%s*([^%)]+)%)%s*$")
+    if not s then
+      i = i + 1
+    else
+      local tail = string.sub(lines[i], e + 1)
+      table.insert(changes, {
+        line = i,
+        message = "Instance.new(X, parent) split into .Parent assignment",
+        before = lines[i],
+        after = ind .. "local " .. name .. " = Instance.new(\\\"" .. class .. "\\\")",
+      })
+      lines[i] = ind .. "local " .. name .. " = Instance.new(\\\"" .. class .. "\\\")"
+      table.insert(lines, i + 1, ind .. name .. ".Parent = " .. parent .. tail)
+      masks = preMask(lines)
+      loose = preMaskLoose(lines)
+      i = i + 2
+    end
+  end
+  return lines, changes
+end
+
+RULES["auto_tweener"] = function(lines, masks)
+  local changes = {}
+  local i = 1
+  while i <= #lines do
+    local m = masks[i] or ""
+    local ind = string.match(m, "^(%s*)while%s+wait%s*%(%s*%)%s*do%s*$")
+      or string.match(m, "^(%s*)while%s+[%w_%.]+%.wait%s*%(%s*%)%s*do%s*$")
+      or string.match(m, "^(%s*)while%s+[%w_%.%:%[%]]+%s*:%s*[Ww]ait%s*%(%s*%)%s*do%s*$")
+    if not ind then
+      i = i + 1
+    else
+      local body = nil
+      local endAt = nil
+      local k = i + 1
+      while k <= #lines and k - i <= 12 do
+        local mk = masks[k] or ""
+        if string.match(mk, "^(%s*)end%s*$") then
+          endAt = k
+          break
+        end
+        if string.match(mk, "%S") then
+          if body then body = nil break end
+          body = { index = k, masked = mk }
+        end
+        k = k + 1
+      end
+      if body then
+        local obj, prop, target, factor = string.match(body.masked, "^%s*([%w_%.%:]+)%.(Position|CFrame)%s*=%s*%1%.%2%s*:%s*Lerp%s*%(([^,]+),%s*([%-%d%.]+)%)%s*$")
+        if not obj or not endAt or tonumber(factor) == nil or tonumber(factor) <= 0 then
+          i = i + 1
+        else
+          local duration = string.format("%.6f", 1 / tonumber(factor))
+          local replacement = ind .. "game:GetService(\\\"TweenService\\\"):Create(" .. obj .. ", TweenInfo.new(" .. duration .. "), {" .. prop .. " = " .. target .. "}):Play()"
+          table.insert(changes, { line = i, message = "Lerp wait-loop -> TweenService tween", before = joinLines({ lines[i], body.masked and lines[body.index] or "" }), after = replacement })
+          local removed = {}
+          for n = i, endAt do table.insert(removed, lines[n]) end
+          lines[i] = replacement
+          for n = endAt, i + 1, -1 do table.remove(lines, n) end
+          masks = preMask(lines)
+          i = i + 1
+        end
+      else
+        i = i + 1
+      end
+    end
+  end
+  return lines, changes
+end
+
+RULES["lines_organization"] = function(lines, masks)
+  local changes = {}
+  -- 1) collapse runs of 3+ blank lines into a single blank line
+  local collapsed = {}
+  local blankRun = 0
+  for i, line in ipairs(lines) do
+    if string.match(line, "^%s*$") then
+      blankRun = blankRun + 1
+      if blankRun <= 1 then table.insert(collapsed, "") end
+    else
+      blankRun = 0
+      table.insert(collapsed, line)
+    end
+  end
+  lines = collapsed
+  masks = preMask(lines)
+  -- 2) recompute indentation from block depth (4 spaces per level)
+  local out = {}
+  local depth = 0
+  for i, line in ipairs(lines) do
+    local masked = masks[i] or ""
+    if not string.match(masked, "%S") then
+      table.insert(out, line)
+    elseif string.match(line, "^%s*%-%-") then
+      table.insert(out, line)
+    else
+      local isElse = string.match(masked, "^%s*elseif") or string.match(masked, "^%s*else$") or string.match(masked, "^%s*else%s+") or string.match(masked, "^%s*until")
+      local opens = countOpens(masked)
+      local closes = countCloses(masked)
+      local expected = depth
+      if isElse then expected = expected - 1 end
+      expected = expected - closes
+      if expected < 0 then expected = 0 end
+      local newLine = string.rep(" ", expected * 4) .. string.match(line, "^%s*(.-)%s*$")
+      if newLine ~= line then
+        table.insert(changes, { line = i, message = "adjusted indentation", before = line, after = newLine })
+      end
+      table.insert(out, newLine)
+      depth = depth + opens - closes
+      if depth < 0 then depth = 0 end
+    end
+  end
+  return out, changes
+end
+
+-- ── Rule driver ──────────────────────────────────────────────────────────
+local function runRulesOnSource(source)
+  if MODE == "scan" then
+    local matches = {}
+    for _, ruleId in ipairs(REQUESTED_RULES) do
+      local rule = RULES[ruleId]
+      if rule then
+        local baseLines = splitLines(source)
+        local okR, _, ruleChanges = pcall(rule, baseLines, preMask(baseLines))
+        if okR then
+          for _, ch in ipairs(ruleChanges) do
+            ch.rule = ruleId
+            table.insert(matches, ch)
+          end
+        end
+      end
+    end
+    return matches, nil, source
+  end
+  local scriptChanges = {}
+  local scriptSkips = {}
+  local originalBalance = balanceErrors(source)
+  local current = source
+  for _, ruleId in ipairs(REQUESTED_RULES) do
+    local rule = RULES[ruleId]
+    if rule then
+      local working = splitLines(current)
+      local okR, nextLines, ruleChanges = pcall(rule, working, preMask(working))
+      if not okR then
+        table.insert(scriptSkips, { rule = ruleId, line = 0, message = "rule failed internally; skipped (" .. tostring(nextLines) .. ")" })
+      else
+        local candidate = joinLines(nextLines)
+        local changed = candidate ~= current and #ruleChanges > 0
+        if changed then
+          local shieldErr = nil
+          if SYNTAX_SHIELD and originalBalance == nil then
+            shieldErr = balanceErrors(candidate)
+          end
+          if shieldErr then
+            for _, ch in ipairs(ruleChanges) do
+              table.insert(scriptSkips, { rule = ruleId, line = ch.line, message = "syntax shield: skipped - the rewrite would unbalance the script (" .. shieldErr .. ")" })
+            end
+          else
+            current = candidate
+            for _, ch in ipairs(ruleChanges) do
+              ch.rule = ruleId
+              table.insert(scriptChanges, ch)
+            end
+          end
+        end
+      end
+    end
+  end
+  return scriptChanges, scriptSkips, current
+end
+
+-- ── Main ─────────────────────────────────────────────────────────────────
+local result
+if MODE == "fix" then
+  local scriptObject = resolvePath(TARGET_PATH)
+  if not scriptObject then
+    result = { available = false, error = "Script not found: " .. TARGET_PATH }
+  elseif not scriptObject:IsA("LuaSourceContainer") then
+    result = { available = false, error = "Not a script: " .. TARGET_PATH }
+  else
+    local sourceOk, source = pcall(function() return scriptObject.Source end)
+    if not sourceOk or type(source) ~= "string" then
+      result = { available = false, error = "Could not read the Source of " .. TARGET_PATH }
+    else
+      local changes, skips, fixed = runRulesOnSource(source)
+      result = {
+        available = true,
+        mode = "fix",
+        script = scriptObject:GetFullName(),
+        changed = #changes,
+        changes = changes,
+        skipped = skips,
+        wrote = false,
+        same = fixed == source,
+      }
+      if fixed ~= source then
+        local writeOk, writeErr = pcall(function()
+          local cH = game:GetService("ChangeHistoryService")
+          local se = game:GetService("ScriptEditorService")
+          cH:SetWaypoint("RLScript Fixer")
+          se:UpdateSourceAsync(scriptObject, function(currentSource)
+            return fixed
+          end)
+          cH:SetWaypoint("RLScript Fixer")
+        end)
+        result.wrote = writeOk
+        if not writeOk then
+          result.writeError = tostring(writeErr)
+          if #source <= 50000 then result.currentSource = source end
+          if #fixed <= 50000 then result.source = fixed end
+        end
+      end
+    end
+  end
+else
+  local scripts = collectScripts(SCOPE)
+  if scripts == nil then
+    result = { available = false, error = "Scope not found: " .. SCOPE }
+  else
+    local matches = {}
+    local perRule = {}
+    local checked = 0
+    for _, scriptObject in ipairs(scripts) do
+      local sourceOk, source = pcall(function() return scriptObject.Source end)
+      if sourceOk and type(source) == "string" then
+        checked = checked + 1
+        local ruleMatches = runRulesOnSource(source)
+        for _, m in ipairs(ruleMatches) do
+          m.script = scriptObject:GetFullName()
+          perRule[m.rule] = (perRule[m.rule] or 0) + 1
+          if #matches < 300 then table.insert(matches, m) end
+        end
+      end
+    end
+    result = {
+      available = true,
+      mode = "scan",
+      scope = SCOPE,
+      checked = checked,
+      matches = matches,
+      perRule = perRule,
+      truncated = #matches >= 300,
+    }
+  end
+end
+return result`;
+  }
+
+  // Validate the optional `rules` array for scan_script/fix_script. Returns the
+  // ordered rule id list (default: every rule) or an ERROR message string.
+  function sanitizeFixRules(rules) {
+    const valid = (ZS.FIX_RULES || []).map((r) => r.id);
+    if (rules == null) return valid;
+    if (!Array.isArray(rules)) return "rules must be an array of rule ids.";
+    const out = [];
+    for (const r of rules) {
+      const id = String(r).trim();
+      if (!id || !valid.includes(id)) return `unknown rule "${r}". Valid rule ids: ${valid.join(", ")}`;
+      if (!out.includes(id)) out.push(id);
+    }
+    return out;
+  }
+
   async function runTool(call) {
     const name = call.tool;
     const args = call.arguments || {};
@@ -1183,6 +1971,17 @@ return {
     }
     if (name !== "use_skill" && !A.allowAiTools) {
       return `ERROR: AI tools are disabled by the user. '${accessBareName || name}' was not run. Do not emit more RLScript commands until the user enables AI tools in the RLScript menu.`;
+    }
+    // Per-item disable lists (AI access menu's Tools/Skills tabs). Exact name
+    // match, enforced here at the single dispatch choke point like the master
+    // gates above.
+    if (name === "use_skill") {
+      const reqSkill = String(args.skill_name || "").trim();
+      if (disabledSkills.includes(reqSkill)) {
+        return `ERROR: the skill "${reqSkill}" is disabled by the user. Do not load it again until the user re-enables it in the RLScript menu.`;
+      }
+    } else if (disabledTools.includes(accessBareName || name)) {
+      return `ERROR: the '${accessBareName || name}' command is disabled by the user. Do NOT call it again until the user re-enables it in the RLScript menu.`;
     }
     // NEVER execute while the AI tab is backgrounded/minimized. This is the single
     // choke point for ALL execution (agentLoop's tool dispatch AND the bootstrap's
@@ -1241,6 +2040,72 @@ return {
       });
       if (/^ERROR\b/i.test(nested)) return `ERROR in script_analysis: ${nested}`;
       return nested.replace(/^Output of 'execute_luau':/, "Output of 'script_analysis':");
+    }
+    // Deterministic fixer tools: scan_script (read-only report) and fix_script
+    // (apply rules + auto-write in Studio with native undo). Both run the same
+    // Luau engine; fix_script falls back to multi_edit when the engine cannot
+    // write through ScriptEditorService itself.
+    if (name === "scan_script" || name === "fix_script") {
+      const hasExecute = A.toolList.some((tool) => bareToolName(tool.name) === "execute_luau");
+      if (!hasExecute) return `ERROR: ${name} requires Roblox's execute_luau command, which is not available right now.`;
+      const rules = sanitizeFixRules(args.rules);
+      if (typeof rules === "string") return `ERROR in ${name}: ${rules}`;
+      let code, label;
+      if (name === "scan_script") {
+        const scope = String(args.scope || "game").trim().slice(0, 200) || "game";
+        code = buildScriptEngineCode("scan", { scope, rules });
+        label = "scan_script";
+      } else {
+        const scriptPath = String(args.script_path || "").trim().slice(0, 300);
+        if (!scriptPath) {
+          return "ERROR in fix_script: script_path is required (dot-notation, e.g. game.ServerScriptService.MyScript).";
+        }
+        code = buildScriptEngineCode("fix", { scriptPath, rules, syntaxShield: args.syntax_shield === undefined ? syntaxShieldDefault : args.syntax_shield !== false });
+        label = "fix_script";
+      }
+      const nested = await runTool({
+        tool: "execute_luau",
+        arguments: { datamodel_type: "Edit", code },
+      });
+      if (/^ERROR\b/i.test(nested)) return `ERROR in ${name}: ${nested}`;
+      const raw = nested.replace(/^Output of 'execute_luau':\s*/, "").trim();
+      if (name === "fix_script") {
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch {}
+        // Engine could not write through ScriptEditorService: fall back to
+        // multi_edit with the exact current source as old_string.
+        if (parsed && parsed.available && parsed.wrote === false && typeof parsed.source === "string" && typeof parsed.currentSource === "string") {
+          const applied = await runTool({
+            tool: "multi_edit",
+            arguments: {
+              datamodel_type: "Edit",
+              file_path: String(args.script_path || "").trim().slice(0, 300),
+              edits: [{ old_string: parsed.currentSource, new_string: parsed.source }],
+            },
+          });
+          if (/^ERROR\b/i.test(applied)) {
+            return `ERROR in fix_script: the engine could not write the script (${parsed.writeError || "unknown error"}) and the multi_edit fallback also failed: ${applied}`;
+          }
+          return `Output of 'fix_script':\nThe engine could not write through ScriptEditorService (${parsed.writeError || "unknown error"}), so the fixed source was applied via multi_edit instead.\n${raw}`;
+        }
+        return `Output of 'fix_script':\n${raw}`;
+      }
+      return `Output of 'scan_script':\n${raw}`;
+    }
+    // AI-to-AI offload: send ONE self-contained question to the model the user
+    // configured in the popup (their own API key, fetched from background).
+    if (name === "ask_ai") {
+      const question = String(args.question || "").trim();
+      if (!question) {
+        return "ERROR in ask_ai: question is required (the other model has no Studio access - paste any code you need reviewed into the question text).";
+      }
+      const r = await bg({
+        type: "ask_ai",
+        question: question.slice(0, 30000),
+        model: String(args.model || "").trim().slice(0, 200),
+      });
+      if (!r || !r.ok) return `ERROR in ask_ai: ${(r && r.error) || "the AI-to-AI bridge could not be reached."}`;
+      return `Output of 'ask_ai':\n${String(r.answer || "(empty response)")}`;
     }
     // Blocked commands: refuse up-front with a clear, tailored error so the
     // model abandons it and continues instead of wasting/hanging a turn.
@@ -1957,6 +2822,8 @@ return {
         customPrompt: ui.getCustomPrompt(),
         allowAiTools: access.tools,
         allowAiSkills: access.skills,
+        disabledTools: access.disabledTools,
+        disabledSkills: access.disabledSkills,
       });
       const base = await submitAndGetBase(prompt);
       if (!alive()) return;
@@ -2703,25 +3570,37 @@ return {
     function getCustomPrompt() { return customPrompt; }
     // User-controlled access gates. They default to enabled for existing
     // installs, persist across pages, and are enforced by runTool immediately.
+    // zsDisabledTools/zsDisabledSkills are the per-item disable lists (arrays of
+    // exact tool/skill names) surfaced by the AI access menu's Tools/Skills tabs.
+    // The lists themselves live at module scope (runTool reads them); the ui IIFE
+    // only loads/persists them.
+    const refreshToolNames = () => {
+      A.toolNames = new Set([
+        ...A.toolList.map((t) => bareToolName(t.name)).filter((n) => !disabledTools.includes(n)),
+        ...enabledLocalVirtualTools()
+          .filter((t) => !disabledTools.includes(t.name))
+          .map((t) => t.name),
+      ]);
+    };
+    const refreshMenu = () => { if (!menuEl.hidden) buildMenu(); };
     try {
-      chrome.storage.local.get(["zsAllowAiTools", "zsAllowAiSkills"], (r) => {
+      chrome.storage.local.get(["zsAllowAiTools", "zsAllowAiSkills", "zsDisabledTools", "zsDisabledSkills", "zsSyntaxShield"], (r) => {
         A.allowAiTools = !r || r.zsAllowAiTools !== false;
         A.allowAiSkills = !r || r.zsAllowAiSkills !== false;
-        A.toolNames = new Set([
-          ...A.toolList.map((t) => t.name),
-          ...enabledLocalVirtualTools().map((t) => t.name),
-        ]);
-        if (!menuEl.hidden) buildMenu();
+        syntaxShieldDefault = !r || r.zsSyntaxShield !== false;
+        if (r && Array.isArray(r.zsDisabledTools)) disabledTools = r.zsDisabledTools.filter((n) => typeof n === "string");
+        if (r && Array.isArray(r.zsDisabledSkills)) disabledSkills = r.zsDisabledSkills.filter((n) => typeof n === "string");
+        refreshToolNames();
+        refreshMenu();
       });
     } catch {}
-    function getAiAccess() { return { tools: A.allowAiTools, skills: A.allowAiSkills }; }
+    function getAiAccess() {
+      return { tools: A.allowAiTools, skills: A.allowAiSkills, disabledTools: [...disabledTools], disabledSkills: [...disabledSkills] };
+    }
     function setAiAccess(kind, enabled) {
       if (kind === "tools") A.allowAiTools = !!enabled;
       if (kind === "skills") A.allowAiSkills = !!enabled;
-      A.toolNames = new Set([
-        ...A.toolList.map((t) => t.name),
-        ...enabledLocalVirtualTools().map((t) => t.name),
-      ]);
+      refreshToolNames();
       try {
         chrome.storage.local.set({ zsAllowAiTools: A.allowAiTools, zsAllowAiSkills: A.allowAiSkills });
       } catch {}
@@ -2729,6 +3608,21 @@ return {
       // next command can be dispatched. This also prevents a previously loaded
       // skill from continuing after the user disabled skills.
       if ((!A.allowAiTools || !A.allowAiSkills) && (A.running || A.starting)) stopLoop();
+      buildMenu();
+    }
+    function setToolDisabled(name, disabled) {
+      const set = new Set(disabledTools);
+      if (disabled) set.add(String(name).trim()); else set.delete(String(name).trim());
+      disabledTools = [...set].filter((n) => !!n);
+      refreshToolNames();
+      try { chrome.storage.local.set({ zsDisabledTools: disabledTools }); } catch {}
+      buildMenu();
+    }
+    function setSkillDisabled(name, disabled) {
+      const set = new Set(disabledSkills);
+      if (disabled) set.add(String(name).trim()); else set.delete(String(name).trim());
+      disabledSkills = [...set].filter((n) => !!n);
+      try { chrome.storage.local.set({ zsDisabledSkills: disabledSkills }); } catch {}
       buildMenu();
     }
     // Reflect the saved value back into the menu textarea (unless being edited).
@@ -2862,9 +3756,15 @@ return {
          </section>
          <section class="zs-menu-sec">
            <div class="zs-sec-label"><span>AI access</span></div>
-           <div class="zs-menu-note">Control whether RLScript lets the AI use connected commands or load skills. Changes are saved for future sessions.</div>
+           <div class="zs-menu-note">Master switches for every command and skill, plus per-item toggles under Tools / Skills. Changes are saved for future sessions.</div>
            <label class="zs-access-row"><input id="zs-allow-tools" type="checkbox" ${A.allowAiTools ? "checked" : ""}><span class="zs-access-copy"><span class="zs-access-title">Allow AI tools</span><span class="zs-access-sub">MCP commands such as read, edit, run, and playtest</span></span></label>
            <label class="zs-access-row"><input id="zs-allow-skills" type="checkbox" ${A.allowAiSkills ? "checked" : ""}><span class="zs-access-copy"><span class="zs-access-title">Allow AI skills</span><span class="zs-access-sub">RLScript and Roblox Studio skill workflows</span></span></label>
+           <div class="zs-access-tabs">
+             <button id="zs-access-tools-btn" class="zs-access-tab"><span>Tools</span><span class="zs-access-count"></span></button>
+             <button id="zs-access-skills-btn" class="zs-access-tab"><span>Skills</span><span class="zs-access-count"></span></button>
+           </div>
+           <div id="zs-access-panel-tools" class="zs-access-panel" hidden></div>
+           <div id="zs-access-panel-skills" class="zs-access-panel" hidden></div>
          </section>
          <section class="zs-menu-sec">
            <div class="zs-sec-label"><span>Free Support</span></div>
@@ -2872,9 +3772,7 @@ return {
            ${WORKINK_URL ? `<button class="zs-tip-opt zs-tip-ad" data-u="${WORKINK_URL}"><span>Watch an ad to support</span><span class="zs-tip-sub">free, takes a minute</span></button>` : ""}
          </section>
          <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>Support with Robux / Ko-fi</span></div>
-           <button class="zs-tip-opt zs-tip-kofi" data-u="${KOFI_URL}"><span>Tip on Ko-fi</span><span class="zs-tip-sub">any amount</span></button>
-           <div class="zs-tip-sep">or tip in Robux</div>
+           <div class="zs-sec-label"><span>Support in Robux</span></div>
            <div class="zs-rbx-grid">${passes}</div>
          </section>
          <section class="zs-menu-sec">
@@ -2899,6 +3797,72 @@ return {
       const allowSkillsEl = menuEl.querySelector("#zs-allow-skills");
       allowToolsEl.addEventListener("change", () => setAiAccess("tools", allowToolsEl.checked));
       allowSkillsEl.addEventListener("change", () => setAiAccess("skills", allowSkillsEl.checked));
+      // Per-item access panels: the Tools and Skills tabs list every available
+      // command/skill with its own toggle. Disabled items go into the module
+      // scope disabledTools/disabledSkills lists (persisted), which runTool
+      // and refreshToolNames both enforce.
+      const accessPanelOpen = (() => { let v = null; return { get: () => v, set: (x) => { v = x; } }; })();
+      const allAccessTools = [...new Set([
+        ...(A.toolList || []).map((t) => bareToolName(t.name)).filter(Boolean),
+        ...LOCAL_VIRTUAL_TOOLS.map((t) => t.name),
+      ])].sort();
+      const allAccessSkills = [...new Set([
+        ...Object.keys(ZS.BUILTIN_SKILLS || {}),
+        ...Object.keys(ZS.NATIVE_SKILLS || {}),
+      ])].sort();
+      const accessTabs = [
+        { btnId: "zs-access-tools-btn", panelId: "zs-access-panel-tools", items: allAccessTools, disabled: () => disabledTools, setter: setToolDisabled },
+        { btnId: "zs-access-skills-btn", panelId: "zs-access-panel-skills", items: allAccessSkills, disabled: () => disabledSkills, setter: setSkillDisabled },
+      ];
+      for (const tab of accessTabs) {
+        const btn = menuEl.querySelector("#" + tab.btnId);
+        const panel = menuEl.querySelector("#" + tab.panelId);
+        const disabledSet = tab.disabled();
+        const refreshCount = () => {
+          const badge = btn.querySelector(".zs-access-count");
+          const enabledCount = tab.items.length - disabledSet.length;
+          badge.textContent = String(enabledCount);
+          badge.classList.toggle("zs-access-count-zero", enabledCount === 0);
+          btn.classList.toggle("zs-tab-partial", disabledSet.length > 0 && disabledSet.length < tab.items.length);
+        };
+        const renderPanel = () => {
+          const rows = tab.items.map((name, idx) => {
+            const isOff = disabledSet.includes(name);
+            return `<label class="zs-access-row zs-access-row-item"><input type="checkbox" data-tidx="${idx}" ${isOff ? "" : "checked"}><span class="zs-access-copy"><span class="zs-access-title">${esc(name)}</span></span></label>`;
+          }).join("");
+          panel.innerHTML = rows || `<div class="zs-menu-note">Nothing to list.</div>`;
+          panel.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+            cb.addEventListener("change", () => {
+              tab.setter(tab.items[Number(cb.dataset.tidx)], cb.checked);
+            });
+          });
+        };
+        btn.addEventListener("click", () => {
+          const open = panel.hidden;
+          for (const other of accessTabs) {
+            const otherBtn = menuEl.querySelector("#" + other.btnId);
+            const otherPanel = menuEl.querySelector("#" + other.panelId);
+            otherPanel.hidden = true;
+            otherBtn.classList.remove("zs-tab-active");
+          }
+          panel.hidden = !open;
+          btn.classList.toggle("zs-tab-active", open);
+          accessPanelOpen.set(open ? tab.btnId : null);
+          if (open) renderPanel();
+        });
+        tab.btnEl = btn;
+        tab.panelEl = panel;
+        tab.renderPanel = renderPanel;
+        refreshCount();
+      }
+      // Re-open the panel that was open when the menu re-rendered (toggling an
+      // item rebuilds the whole menu - keep the user where they were).
+      const reopened = accessTabs.find((t) => t.btnId === accessPanelOpen.get());
+      if (reopened) {
+        reopened.panelEl.hidden = false;
+        reopened.btnEl.classList.add("zs-tab-active");
+        reopened.renderPanel();
+      }
       const ta = menuEl.querySelector("#zs-set-text");
       const saveBtn = menuEl.querySelector("#zs-set-save");
       const status = menuEl.querySelector("#zs-set-status");

@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.5.2-hotfix] - 2026-08-06
+
+### Deterministic script fixer (scan_script / fix_script)
+- `scan_script` scans a scope and reports matches for 9 mechanical rule sets:
+  deprecated APIs (wait/spawn/remove/connect/KeyDown-era members, JumpPower,
+  Pitch, VelocitySpread, .Rotation, AngularVelocity, service(), and more),
+  compound assignments (`x = x + 1` -> `x += 1`), redundant booleans
+  (`if x == true`), string ClassName comparisons (`:IsA()`), while-loop -> for
+  loop conversion, `Instance.new("X", parent)` splitting, `math.random()` ->
+  `Random.new()` modernization, Lerp wait-loops -> TweenService, and line
+  organization (blank-line collapsing, re-indentation).
+- `fix_script` applies the rules to a single script inside Studio with an
+  undoable change (Ctrl+Z) through ScriptEditorService, falling back to
+  multi_edit if the write is unavailable.
+- **Syntax Shield:** before any rewrite is written, the engine checks the
+  block/bracket balance of the whole script and skips (and reports) any rule
+  whose result would unbalance it. The default can be toggled in the popup or
+  per-call with `syntax_shield`.
+- Both commands are deterministic: the same input always produces the same
+  output, and the AI is instructed to use them instead of hand-editing.
+- The rule engine is ported from AutoScriptFixer's own passes (ProperLoops,
+  IsAImplementor, RefactorInstanceParent, AutoTweener, CompoundAssignments,
+  UpdateAPI, FormatLines) and rewrites only known-safe shapes.
+
+### AI-to-AI help (ask_ai)
+- New `ask_ai` command lets the agent hand a hard sub-problem to a second model
+  (OpenAI, Claude, Gemini, DeepSeek, Qwen or Kimi) using the user's own API
+  key. The key is stored in this browser only and never shown to the chat AI.
+- Configure provider/model/key in the extension popup; the popup now includes
+  an AI-to-AI section with a Save/Clear.
+- Host permissions added for the six provider APIs so the background page can
+  call them directly.
+
+### Per-command AI access control
+- The RLScript panel's AI access section now lists every tool and skill
+  individually with checkboxes (Tools and Skills tabs). Disabled commands are
+  hidden from the AI's prompt and refused at the dispatch choke point with an
+  explicit error.
+- Removed the Ko-fi button from the in-page menu (Support section now shows
+  "Support in Roblox" game-passes only).
+
 ## [1.5.2] - 2026-08-05
 
 ### Branding and release metadata

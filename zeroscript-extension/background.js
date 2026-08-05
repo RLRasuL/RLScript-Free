@@ -296,6 +296,94 @@ function broadcastStatus() {
   });
 }
 
+// ── AI-to-AI helper (ask_ai) ─────────────────────────────────────────────
+// The content script cannot fetch arbitrary APIs due to CORS, so the actual
+// HTTP call happens HERE in the service worker, using the provider/model/key
+// the user configured in the popup (chrome.storage.local). The key never
+// leaves this process and is never included in any response text.
+const ASK_AI_DEFAULTS = {
+  openai: { url: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" },
+  anthropic: { url: "https://api.anthropic.com/v1/messages", model: "claude-sonnet-4-5" },
+  gemini: { url: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.0-flash" },
+  deepseek: { url: "https://api.deepseek.com/chat/completions", model: "deepseek-chat" },
+  qwen: { url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", model: "qwen-plus" },
+  kimi: { url: "https://api.moonshot.cn/v1/chat/completions", model: "moonshot-v1-8k" },
+};
+
+async function askAi(question, modelOverride) {
+  const questionText = String(question || "").trim();
+  if (!questionText) return { ok: false, error: "question is required." };
+  const cfg = await new Promise((resolve) => {
+    chrome.storage.local.get(["zsAskAiProvider", "zsAskAiModel", "zsAskAiKey"], resolve);
+  });
+  const provider = String(cfg.zsAskAiProvider || "").trim().toLowerCase();
+  const def = ASK_AI_DEFAULTS[provider];
+  if (!def) {
+    return { ok: false, error: "no AI-to-AI provider configured. Open the RLScript popup, pick a provider and enter your API key (AI-to-AI help section)." };
+  }
+  const key = String(cfg.zsAskAiKey || "").trim();
+  if (!key) {
+    return { ok: false, error: "the " + provider + " API key is not set. Open the RLScript popup (AI-to-AI help) and save your key." };
+  }
+  const model = String(modelOverride || "").trim() || String(cfg.zsAskAiModel || "").trim() || def.model;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    let res;
+    if (provider === "anthropic") {
+      res = await fetch(def.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content: questionText }] }),
+        signal: controller.signal,
+      });
+    } else if (provider === "gemini") {
+      res = await fetch(def.url + "/models/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(key), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: questionText }] }] }),
+        signal: controller.signal,
+      });
+    } else {
+      res = await fetch(def.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + key },
+        body: JSON.stringify({ model, messages: [{ role: "user", content: questionText }], max_tokens: 4096 }),
+        signal: controller.signal,
+      });
+    }
+    const text = await res.text();
+    if (!res.ok) {
+      return { ok: false, error: provider + " API error " + res.status + ": " + text.slice(0, 300) };
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { ok: false, error: provider + " API returned non-JSON: " + text.slice(0, 200) };
+    }
+    let answer = "";
+    if (provider === "gemini") {
+      const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+      if (parts) for (const p of parts) if (p && typeof p.text === "string") answer += p.text;
+    } else {
+      const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      if (typeof content === "string") answer = content;
+    }
+    if (!answer) return { ok: false, error: provider + " API returned no content (" + text.slice(0, 200) + ")" };
+    return { ok: true, answer };
+  } catch (e) {
+    const aborted = (e && e.name === "AbortError");
+    return { ok: false, error: aborted ? provider + " API timed out after 60s." : provider + " API request failed: " + String(e && e.message || e).slice(0, 200) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── messages from content.js / popup.js ─────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
@@ -304,6 +392,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (!connected) connect(); // self-heal after a worker wake-up
         sendResponse(statusObj());
         break;
+      case "ask_ai": {
+        const r = await askAi(msg.question, msg.model);
+        sendResponse(r);
+        break;
+      }
       case "list_tools": {
         // Prefer a live refresh; fall back to cache so the loop never stalls.
         // 10s, not 25s: a catalogue request only blocks this long when one of the

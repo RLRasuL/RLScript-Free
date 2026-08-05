@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <style>
-    body { width: 248px; margin: 0; font-family: "Segoe UI", sans-serif; background: #16161a; color: #e8e8ec; }
+    body { width: 300px; margin: 0; font-family: "Segoe UI", sans-serif; background: #16161a; color: #e8e8ec; }
     .wrap { padding: 14px; }
     h1 { font-size: 14px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
     .ver { font-size: 9.5px; font-weight: 500; letter-spacing: 0.2px;
@@ -15,7 +15,22 @@
     .row { font-size: 12px; opacity: 0.85; margin: 6px 0; }
     button { width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; }
     .ghost { background: rgba(255,255,255,0.08); color: #e8e8ec; }
-    .kofi { background: rgba(255,105,135,.16); color: #ff8fa3; border: 1px solid rgba(255,105,135,.4) !important; font-weight: 700; }
+    .sec-title { font-size: 11px; font-weight: 600; letter-spacing: 0.4px; opacity: 0.55;
+                 text-transform: uppercase; margin: 14px 0 6px; }
+    .field { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 7px 8px;
+             border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(255,255,255,0.06);
+             color: #e8e8ec; font-size: 12px; }
+    .field:focus { outline: none; border-color: rgba(255,255,255,0.4); }
+    select.field { cursor: pointer; }
+    .ai-row { display: flex; gap: 8px; }
+    .ai-row button { margin-top: 6px; padding: 7px; width: 50%; }
+    .ai-status { font-size: 11px; margin-top: 6px; min-height: 14px; opacity: 0.75; }
+    .ai-status.ok { color: #34d399; }
+    .ai-status.err { color: #f87171; }
+    .shield { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; cursor: pointer; }
+    .shield input { cursor: pointer; }
+    .shield .shield-sub { opacity: 0.55; font-size: 11px; }
+    .note { margin-top: 10px; opacity: 0.6; font-size: 11px; }
     code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; }
   </style>
 </head>
@@ -28,8 +43,34 @@
     <button class="ghost" id="reconnect">↻ Reconnect bridge</button>
     <button class="ghost" id="restart">⟳ Restart Roblox server</button>
     <button class="ghost" id="settings">⚙ Settings</button>
-    <button class="kofi" id="kofi">♥ Tip the developer on Ko-fi</button>
-    <div class="row" style="margin-top:10px; opacity:0.6">
+
+    <div class="sec-title">AI-to-AI help (ask_ai)</div>
+    <div class="row" style="margin-top:0">Send hard sub-problems to a second model using your own API key.</div>
+    <div class="ai-row">
+      <select id="ai-provider" class="field">
+        <option value="openai">OpenAI (GPT)</option>
+        <option value="anthropic">Claude (Anthropic)</option>
+        <option value="gemini">Gemini (Google)</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="qwen">Qwen (Alibaba)</option>
+        <option value="kimi">Kimi (Moonshot)</option>
+      </select>
+      <input id="ai-model" class="field" type="text" placeholder="Model (optional)" />
+    </div>
+    <input id="ai-key" class="field" type="password" placeholder="API key (stored only in this browser)" />
+    <div class="ai-row">
+      <button class="ghost" id="ai-save">Save</button>
+      <button class="ghost" id="ai-clear">Clear</button>
+    </div>
+    <div id="ai-status" class="ai-status"></div>
+
+    <div class="sec-title">Code fixes</div>
+    <label class="shield">
+      <input id="syntax-shield" type="checkbox" />
+      <span>Syntax Shield<span class="shield-sub"> — refuse a rewrite that would unbalance a script (safer, recommended)</span></span>
+    </label>
+
+    <div class="note">
       Run <code>start.bat</code> and open <b>Roblox Studio</b>, then go to a supported AI.
     </div>
   </div>

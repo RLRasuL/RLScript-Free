@@ -281,6 +281,30 @@ html.zs-light #zs-menu::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); b
 .zs-access-title { color: #ededf0; font-size: 12px; font-weight: 600; }
 .zs-access-sub { color: #6b6b73; font-size: 10px; line-height: 1.35; }
 
+/* AI access: Tools / Skills tabs with per-item toggles */
+.zs-access-tabs { display: flex; gap: 6px; margin: 8px 0 4px; }
+button.zs-access-tab {
+  flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 7px 10px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05); color: #c8c8ce; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: background 0.13s ease, border-color 0.13s ease;
+}
+button.zs-access-tab:hover { background: rgba(255, 255, 255, 0.09); }
+button.zs-access-tab.zs-tab-active { background: rgba(139, 156, 255, 0.14); border-color: rgba(139, 156, 255, 0.45); color: #f4f4f6; }
+button.zs-access-tab.zs-tab-partial:not(.zs-tab-active) { border-color: rgba(246, 196, 83, 0.45); }
+.zs-access-count {
+  font-size: 10px; font-weight: 700; min-width: 18px; padding: 1px 5px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.1); color: #b9b9c1; text-align: center;
+}
+.zs-access-count-zero { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+.zs-access-panel {
+  margin-top: 4px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px;
+  padding: 4px 6px; max-height: 190px; overflow-y: auto;
+}
+.zs-access-row-item { padding: 5px 6px; margin: 1px 0; }
+.zs-access-row-item .zs-access-title { font-size: 11.5px; font-weight: 500; color: #d8d8de; }
+
+
 /* AI site rows: plain list, subtle surface on hover */
 .zs-site-opt {
   width: 100%; box-sizing: border-box; margin: 1px 0; padding: 8px 10px;
