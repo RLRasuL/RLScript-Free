@@ -9,7 +9,7 @@ Control Roblox Studio with AI directly from your browser - read/edit scripts, ru
 
 > 🌐 **Website: [zeroscript-five.vercel.app](https://zeroscript-five.vercel.app)** the free Lemonade.gg / Luamotion alternative for building Roblox games with AI.
 
-Supported AI entry points include **DeepSeek** (chat.deepseek.com, recommended), **Google Gemini** (gemini.google.com), **Kimi** (kimi.com, Moonshot AI), **GLM** (chat.z.ai, Z.ai), **Qwen** (chat.qwen.ai), **Arena Direct** (arena.ai/text/direct), **Arena Agent** (arena.ai/agent), **Meta AI** (meta.ai), **MiniMax** (agent.minimax.io), **Grok** (grok.com), **Claude** (claude.ai) and **ChatGPT** (chatgpt.com). Arena Direct and Arena Agent are separate interfaces; use the matching entry point. MiniMax, Grok, Claude and ChatGPT may require you to be signed in before starting a session.
+Supported AI entry points include **DeepSeek** (chat.deepseek.com, recommended), **Google Gemini** (gemini.google.com), **Kimi** (kimi.com, Moonshot AI), **GLM** (chat.z.ai, Z.ai), **Qwen** (chat.qwen.ai), **Arena Agent** (arena.ai/agent), **Meta AI** (meta.ai), **MiniMax** (agent.minimax.io), **Grok** (grok.com), **Claude** (claude.ai) and **ChatGPT** (chatgpt.com). MiniMax, Grok, Claude and ChatGPT may require you to be signed in before starting a session.
 
 > 💬 **Stuck? Join the [Discord community](https://discord.gg/9aNyZsMWcb)** get help, share feedback, and follow updates.
 
@@ -71,10 +71,9 @@ A small window opens, that means the Bridge is running.
 
 ### 4. Start a session
 
-Go to https://chat.deepseek.com (recommended), https://gemini.google.com, https://www.kimi.com, https://chat.z.ai, https://chat.qwen.ai, https://arena.ai/text/direct, https://arena.ai/agent, https://agent.minimax.io, https://grok.com, https://claude.ai or https://chatgpt.com and open a new chat. The ZeroScript bar appears above the input box. Click **Start session**. Type what you want to build.
+Go to https://chat.deepseek.com (recommended), https://gemini.google.com, https://www.kimi.com, https://chat.z.ai, https://chat.qwen.ai, https://arena.ai/agent, https://agent.minimax.io, https://grok.com, https://claude.ai or https://chatgpt.com and open a new chat. The ZeroScript bar appears above the input box. Click **Start session**. Type what you want to build.
 
 > Only works on the supported AI sites listed above - it will not work on any other site.
-> Arena Direct and Arena Agent are supported separately. On Arena Direct, keep the mode dropdown on **Direct** - ZeroScript blocks Start in Battle / Side-by-Side modes.
 > Gemini and Kimi can be unstable (model behavior, not the extension): Gemini may stop using the Roblox tools after a while, and Kimi may use its own native tools instead. If the AI starts answering in plain text instead of acting, remind it to use the commands or start a new session.
 
 ## Skills and final code checks
@@ -123,31 +122,21 @@ only an explicitly text-only model is blocked from receiving images.
 
 ## New in 1.5.1
 
-- **AI site support:** MiniMax, Grok, Claude, Arena Direct, Arena Agent, and
+- **AI site support:** MiniMax, Grok, Claude, Arena Agent, and
   ChatGPT are supported alongside the existing providers.
-- **Grok routing fixes:** the ZeroScript bar is hidden on `#subscribe`,
-  `?_s=account`, `?_s=appearance`, `?_s=behavior`, and `?_s=personality`,
-  including subscription overlays.
-- **Arena Agent fixes:** native **Continue Work** is recognized and resumes the
-  run; command-bearing turns are recovered even when Arena omits semantic
-  metadata; Escape no longer dismisses the active Yes/No/Continue Work panel;
-  and Agent mode shows an explicit **Unstable** warning. The duplicate Arena
-  Agent destination was removed from Switch AI.
-- **Claude layout fix:** the ZeroScript bar anchors to the outer composer card
-  so it no longer overlaps the message placeholder.
 - **Roblox coding prompt:** Roblox work is explicitly required to use Luau,
   not generic Lua, with the Roblox Engine reference provided for authoritative
   API details.
-- **Built-in bridge skills:** `script-analysis-fix` and `playtest-visual` are
+- **Skills support + Built-in bridge skills:** `script-analysis-fix` and `playtest-visual` are
   available through the bridge without requiring each user to create matching
   skills in Roblox Studio. The local `use_skill` loader and Roblox Studio's
   separate `skill` command are both supported.
-- **Script Analysis workflow:** `script_analysis` compiles Luau and reports
+- **Script Analysis Skill:** `script_analysis` compiles Luau and reports
   conservative warnings such as unknown globals. The fix workflow edits only
   when errors or warnings exist, then reads, fixes, and rechecks after edits.
   It clearly labels the result as heuristic because the full Studio Analysis
   panel diagnostics are not exposed as structured MCP data.
-- **Visual playtesting:** `playtest-visual` starts/stops Play mode, uses
+- **visual playtesting skill:** `playtest-visual` starts/stops Play mode, uses
   `screen_capture` before and after meaningful input, and checks console output
   instead of claiming success from blind input.
 - **Qwen vision handling:** newly released or temporarily unnamed models keep
@@ -158,7 +147,6 @@ only an explicitly text-only model is blocked from receiving images.
   advertised catalogue, rejected at dispatch time, and stop an active run.
 - **Provider labels:** Claude is marked **BEST**, while DeepSeek, GLM, and Qwen
   are marked **Recommended**.
-- **Release metadata:** the extension and bridge version is now 1.5.1.
 
 ## New in 1.5.0
 
