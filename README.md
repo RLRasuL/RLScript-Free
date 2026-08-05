@@ -1,6 +1,6 @@
 # RLScript - Free AI Agent for Roblox Studio
 
-![GitHub stars](https://img.shields.io/github/stars/sebattfg/ZeroScript-Free?style=social)
+![GitHub stars](https://img.shields.io/github/stars/RLRasuL/RLScript-Free?style=social)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
@@ -31,8 +31,8 @@ The extension runs inside the chat page (DeepSeek, Gemini, Kimi, GLM, Qwen, Aren
 
 ## Download
 
-- [Download the latest release](https://github.com/RLRasuL/ZeroScript-Free/releases/latest)
-- [Download the current source ZIP](https://github.com/RLRasuL/ZeroScript-Free/archive/refs/heads/main.zip)
+- [Download the latest release](https://github.com/RLRasuL/RLScript-Free/releases/latest)
+- [Download the current source ZIP](https://github.com/RLRasuL/RLScript-Free/archive/refs/heads/main.zip)
 
 Extract the ZIP, then load its `zeroscript-extension` folder as an unpacked browser extension.
 
