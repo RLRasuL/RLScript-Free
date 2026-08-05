@@ -165,6 +165,9 @@ restart the bridge.
 - Generate meshes, materials, and models
 - Browse and insert from the Creator Store
 - Control play-testing
+- **Trigger Roblox's native Studio Assistant skills** (unit tests, scene/performance
+  analysis, docs search, device simulator, custom skill creation) through the same
+  `use_skill` command used for RLScript's built-in skills
 - **Remember your project across sessions** persistent project memory saved inside your place
 
 ## New in 1.5.2

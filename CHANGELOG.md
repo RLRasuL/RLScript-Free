@@ -16,6 +16,14 @@
 - Added a resilient semantic Copilot adapter for signed-in chat composers,
   messages, send/stop controls, loading state, and reply extraction.
 
+### Roblox native Studio skills
+- `use_skill` now also loads Roblox's native Studio Assistant skills
+  (`unit-test`, `scene-analysis`, `docs-search`, `device-simulator`,
+  `perf-profiling`, `create-skill`) by delegating to Studio's own `skill`
+  command, so the AI can trigger Roblox-authored workflows from any chat.
+- Fixed Copilot's "Start Roblox agent" button: conversation-sidebar entries
+  no longer make a fresh chat look non-empty.
+
 ## [1.5.1] - 2026-08-05
 
 ### Provider and site support

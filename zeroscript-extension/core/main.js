@@ -1204,10 +1204,29 @@ return {
     if (name === "use_skill") {
       const requested = String(args.skill_name || "").trim();
       const skill = ZS.getSkill && ZS.getSkill(requested);
-      if (!skill) {
-        return `ERROR: unknown RLScript skill "${requested}". Available skills: ${Object.keys(ZS.BUILTIN_SKILLS || {}).join(", ") || "none"}.`;
+      if (skill) {
+        return `Output of 'use_skill':\nSkill ${requested} loaded.\n\n${skill.body}`;
       }
-      return `Output of 'use_skill':\nSkill ${requested} loaded.\n\n${skill.body}`;
+      // Roblox native Studio Assistant skills: delegate to Studio's own `skill`
+      // command (skill_name = the rbx-* value) so the AI can trigger the
+      // Roblox-authored workflows (unit tests, scene analysis, docs search, ...)
+      // through the same use_skill entry point the model already knows.
+      const native = ZS.getNativeSkill && ZS.getNativeSkill(requested);
+      if (native) {
+        const delegated = await runTool({
+          tool: "skill",
+          arguments: { skill_name: native.skillName },
+        });
+        if (/^ERROR\b/i.test(delegated)) {
+          return `ERROR in use_skill('${requested}'): ${delegated}`;
+        }
+        return `Output of 'use_skill':\nRoblox native skill ${requested} loaded (from Studio).\n\n${delegated.replace(/^Output of '[^']*':\s*/, "")}`;
+      }
+      const available = [
+        ...Object.keys(ZS.BUILTIN_SKILLS || {}),
+        ...Object.keys(ZS.NATIVE_SKILLS || {}),
+      ].join(", ") || "none";
+      return `ERROR: unknown RLScript skill "${requested}". Available skills: ${available}.`;
     }
     // Text-first analysis wrapper for non-vision AIs. It delegates compilation
     // and conservative warning detection to Roblox's execute_luau tool, then

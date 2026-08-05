@@ -161,19 +161,51 @@ const ZS = (() => {
     })
   });
 
+  // Roblox-authored skills built into Studio's AI Assistant. These are not
+  // local RLScript skills: the Studio MCP exposes each one through its `skill`
+  // command (skill_name = the rbx-* name below). `use_skill` delegates to it so
+  // every AI gets a single, discoverable loader for both local and native
+  // skills. Names are kept in sync with what the Studio MCP `skill` tool accepts.
+  const NATIVE_SKILLS = Object.freeze({
+    "unit-test": Object.freeze({
+      skillName: "rbx-unit-test",
+      description: "Write, run, and debug Luau unit tests for ModuleScripts (built-in harness, or Jest-Lua/TestEZ when detected)."
+    }),
+    "scene-analysis": Object.freeze({
+      skillName: "rbx-scene-analysis",
+      description: "Analyze and optimize the scene: rendering performance, memory, instance health, and leaks."
+    }),
+    "docs-search": Object.freeze({
+      skillName: "rbx-docs-search",
+      description: "Look up accurate Roblox Engine API details and creator guidance before writing code."
+    }),
+    "device-simulator": Object.freeze({
+      skillName: "rbx-device-simulator-lua",
+      description: "Test UI across device form factors and orientations with the Studio device simulator."
+    }),
+    "perf-profiling": Object.freeze({
+      skillName: "rbx-perf-profiling",
+      description: "Analyze fine-grained performance data (MicroProfiler) to find frame-time and memory bottlenecks."
+    }),
+    "create-skill": Object.freeze({
+      skillName: "rbx-create-skill",
+      description: "Author a custom Studio Assistant skill through guided questions."
+    })
+  });
+
   // These commands are local to the extension and do not require a new bridge
   // server. They are advertised alongside the Roblox commands so every AI can
   // discover the skill loader and the non-vision analysis check.
   const VIRTUAL_TOOLS = Object.freeze([
     Object.freeze({
       name: "use_skill",
-      description: "Load a RLScript skill on demand before following a matching workflow.",
+      description: "Load a RLScript skill - or a Roblox native Studio Assistant skill - on demand before following a matching workflow.",
       inputSchema: Object.freeze({
         type: "object",
         properties: Object.freeze({
           skill_name: Object.freeze({
             type: "string",
-            description: "Exact RLScript skill name. Available: script-analysis-fix, playtest-visual"
+            description: "Exact skill name. RLScript: script-analysis-fix, playtest-visual. Roblox native (delegated to Studio's skill command): unit-test, scene-analysis, docs-search, device-simulator, perf-profiling, create-skill."
           })
         }),
         required: Object.freeze(["skill_name"])
@@ -200,6 +232,15 @@ const ZS = (() => {
     return BUILTIN_SKILLS[key] || null;
   }
 
+  function getNativeSkill(name) {
+    const key = String(name || "").trim().toLowerCase();
+    if (NATIVE_SKILLS[key]) return NATIVE_SKILLS[key];
+    // Accept the "rbx-" prefixed form as well (matches the Studio `skill`
+    // command's skill_name values exactly).
+    if (key.startsWith("rbx-")) return NATIVE_SKILLS[key.slice(4)] || null;
+    return null;
+  }
+
   function skillPrompt(enabled = true) {
     if (!enabled) {
       return "SKILLS: RLScript skills are disabled by the user for this session. Do not call `use_skill` or the Roblox Studio `skill` command.";
@@ -207,9 +248,14 @@ const ZS = (() => {
     const names = Object.entries(BUILTIN_SKILLS)
       .map(([name, skill]) => `- ${name}: ${skill.description}`)
       .join("\n");
+    const nativeNames = Object.entries(NATIVE_SKILLS)
+      .map(([name, skill]) => `- ${name}: ${skill.description}`)
+      .join("\n");
     return "SKILLS: RLScript supports on-demand local skills. After a Roblox code change, load the matching skill with `use_skill` and follow its instructions. " +
-      "The Roblox Studio MCP also exposes a separate `skill` command for Roblox-authored or personal Studio skills; use that only when the user asks for one or when a matching Studio skill is advertised. " +
-      "Do not call `screen_capture` for a skill that can be completed with text tools when this AI cannot see images.\n" + names;
+      "`use_skill` ALSO loads Roblox's native Studio Assistant skills by name (it delegates to the Studio `skill` command, so no separate call is needed) - load one whenever the user's request matches its workflow: e.g. unit tests, scene/performance analysis, docs lookup, device testing, or creating a custom skill.\n" +
+      "Do not call `screen_capture` for a skill that can be completed with text tools when this AI cannot see images.\n" +
+      "Local RLScript skills:\n" + names +
+      "\nRoblox native Assistant skills:\n" + nativeNames;
   }
 
   function buildSystemPrompt(opts = {}) {
@@ -436,8 +482,10 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
     memoryNudge,
     TOOL_NOTES,
     BUILTIN_SKILLS,
+    NATIVE_SKILLS,
     VIRTUAL_TOOLS,
     getSkill,
+    getNativeSkill,
     skillPrompt,
   };
 })();
