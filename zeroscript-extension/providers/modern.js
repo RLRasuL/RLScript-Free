@@ -388,6 +388,19 @@ const ZSProvider = (() => {
     const editor = getEditor();
     return out.filter((el) => {
       if (editor && (el === editor || el.contains(editor))) return false;
+      // Copilot's conversation-history sidebar matches the generic
+      // [data-testid*="conversation"] item selector, so a fresh chat with a
+      // populated sidebar looked non-empty and never offered the Start button.
+      // Drop candidates living in a sidebar/navigation container (the chat
+      // thread itself is never wrapped in role="navigation" or <aside>).
+      if (SITE.id === "copilot") {
+        let n = el.parentElement;
+        while (n) {
+          if (n.getAttribute && n.getAttribute("role") === "navigation" ||
+              n.tagName === "ASIDE") return false;
+          n = n.parentElement;
+        }
+      }
       let p = el.parentElement;
       while (p) {
         if (seen.has(p)) return false;

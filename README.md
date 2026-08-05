@@ -169,14 +169,11 @@ restart the bridge.
 
 ## New in 1.5.2
 
-- **Product rename:** the visible extension and bridge branding is now RLScript;
+- **Product Rebrand:** the visible extension and bridge branding is now RLScript;
   legacy internal identifiers and Roblox memory paths remain compatible with
   existing installations.
 - **Microsoft Copilot support:** Copilot at `copilot.microsoft.com` is now
   available in the provider list and uses the modern semantic chat adapter.
-- **New RL icon:** the supplied RL logo is bundled for the extension and project
-  assets.
-- **Version:** the extension and bridge are updated to 1.5.2.
 
 ## New in 1.5.1
 
