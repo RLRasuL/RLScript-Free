@@ -144,6 +144,19 @@ deprecated in favour of GitHub's newer server - if you prefer the maintained
 `github-mcp-server` binary, replace `command`/`args` with its path and
 `["stdio"]` as the first argument, keeping the same env token.
 
+### Blender (already configured)
+
+1. Install **Node.js** from https://nodejs.org (already needed for GitHub).
+2. Install the **BlenderMCP addon** in Blender: https://github.com/ahujasid/blender-mcp
+   - the addon is required for the tools to work; without it the server starts
+   but Blender commands fail until the addon connects.
+3. Restart the bridge (close its window, run start.bat again) with Blender
+   open, then in your AI chat say something like "use Blender to ..." - the AI
+   runs `list_mcp_servers`, sees the Blender commands, and can control Blender.
+
+To disable Blender again, remove the `blender` block from `config.json` and
+restart the bridge.
+
 ## What the AI can do
 
 - Read and edit scripts
