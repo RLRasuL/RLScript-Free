@@ -29,6 +29,13 @@ AI chat (DeepSeek / Gemini / Kimi / GLM / Qwen / Arena / Meta AI / MiniMax / Gro
 
 The extension runs inside the chat page (DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude or ChatGPT). When you type a request, it sends commands to the Bridge running on your PC, which drives Roblox Studio through the built-in MCP server.
 
+## Download
+
+- [Download the latest release](https://github.com/RLRasuL/ZeroScript-Free/releases/latest)
+- [Download the current source ZIP](https://github.com/RLRasuL/ZeroScript-Free/archive/refs/heads/main.zip)
+
+Extract the ZIP, then load its `zeroscript-extension` folder as an unpacked browser extension.
+
 ## Setup
 
 > 📺 **Lost? Watch the [setup tutorial on YouTube](https://youtu.be/kPKiZLZ9_Ps) it covers every step below.**
@@ -116,14 +123,42 @@ only an explicitly text-only model is blocked from receiving images.
 
 ## New in 1.5.1
 
-- **Conditional Script Analysis fixes:** the built-in bridge skill now edits
-  only when errors or warnings are found, then runs a second analysis check
-  after every fix cycle.
-- **AI access controls:** the Switch AI menu now has persistent independent
-  toggles for connected tools and skills; disabled capabilities are hidden from
-  the advertised catalogue and rejected at execution time.
-- **Provider guidance labels:** Claude is marked **BEST**, while DeepSeek, GLM,
-  and Qwen are marked **Recommended**.
+- **AI site support:** MiniMax, Grok, Claude, Arena Direct, Arena Agent, and
+  ChatGPT are supported alongside the existing providers.
+- **Grok routing fixes:** the ZeroScript bar is hidden on `#subscribe`,
+  `?_s=account`, `?_s=appearance`, `?_s=behavior`, and `?_s=personality`,
+  including subscription overlays.
+- **Arena Agent fixes:** native **Continue Work** is recognized and resumes the
+  run; command-bearing turns are recovered even when Arena omits semantic
+  metadata; Escape no longer dismisses the active Yes/No/Continue Work panel;
+  and Agent mode shows an explicit **Unstable** warning. The duplicate Arena
+  Agent destination was removed from Switch AI.
+- **Claude layout fix:** the ZeroScript bar anchors to the outer composer card
+  so it no longer overlaps the message placeholder.
+- **Roblox coding prompt:** Roblox work is explicitly required to use Luau,
+  not generic Lua, with the Roblox Engine reference provided for authoritative
+  API details.
+- **Built-in bridge skills:** `script-analysis-fix` and `playtest-visual` are
+  available through the bridge without requiring each user to create matching
+  skills in Roblox Studio. The local `use_skill` loader and Roblox Studio's
+  separate `skill` command are both supported.
+- **Script Analysis workflow:** `script_analysis` compiles Luau and reports
+  conservative warnings such as unknown globals. The fix workflow edits only
+  when errors or warnings exist, then reads, fixes, and rechecks after edits.
+  It clearly labels the result as heuristic because the full Studio Analysis
+  panel diagnostics are not exposed as structured MCP data.
+- **Visual playtesting:** `playtest-visual` starts/stops Play mode, uses
+  `screen_capture` before and after meaningful input, and checks console output
+  instead of claiming success from blind input.
+- **Qwen vision handling:** newly released or temporarily unnamed models keep
+  `screen_capture` available optimistically; explicitly text-only models remain
+  blocked, and the capability-cache keys were refreshed.
+- **AI access controls:** Switch AI now has persistent independent toggles for
+  connected tools and skills. Disabled capabilities are hidden from the
+  advertised catalogue, rejected at dispatch time, and stop an active run.
+- **Provider labels:** Claude is marked **BEST**, while DeepSeek, GLM, and Qwen
+  are marked **Recommended**.
+- **Release metadata:** the extension and bridge version is now 1.5.1.
 
 ## New in 1.5.0
 

@@ -2,11 +2,44 @@
 
 ## [1.5.1] - 2026-08-05
 
-- Improved the ZeroScript `script_analysis` skill to return conservative warning diagnostics, including unknown-global warnings such as `gam`, instead of always reporting `warnings: 0`. The result still clearly labels the check as heuristic because Roblox's built-in Script Analysis diagnostics are not exposed as structured MCP data.
-- Added the `playtest-visual` skill and visual checkpoints for Roblox gameplay/UI testing. Qwen no longer hides the official `screen_capture` command solely because a newly released model has not appeared in its capability cache; explicitly text-only models remain blocked.
-- Added provider labels in Switch AI: Claude is marked `BEST`, while DeepSeek, GLM, and Qwen are marked `Recommended`.
-- Added persistent AI access controls so users can independently disable connected tools or ZeroScript/Studio skills; disabled capabilities are both hidden and rejected at dispatch time.
-- Bumped the extension and bridge version to 1.5.1.
+### Provider and site support
+- Added/updated support for MiniMax, Grok, Claude, Arena Direct, Arena Agent,
+  and ChatGPT alongside the existing AI sites.
+- Grok now hides the bar on `#subscribe`, account, appearance, behavior, and
+  personality settings routes, including subscription overlays.
+- Arena Agent now recognizes **Continue Work**, recovers command-bearing turns
+  without semantic metadata, protects the active feedback panel from Escape,
+  displays an **Unstable** warning, and no longer appears as a duplicate Switch
+  AI destination.
+- Claude now anchors the bar to the outer composer card to prevent overlap.
+- Added **BEST** for Claude and **Recommended** for DeepSeek, GLM, and Qwen.
+
+### Roblox workflows and skills
+- The bridge now includes built-in `script-analysis-fix` and
+  `playtest-visual` skills, so users do not need to create matching Studio
+  skills themselves.
+- Added the local `use_skill` loader alongside support for Roblox Studio's
+  separate `skill` command.
+- Added the text-first `script_analysis` command with Luau compilation and
+  conservative warning diagnostics such as unknown globals.
+- `script-analysis-fix` now makes no edits when analysis is clean; when errors or
+  warnings exist, it reads and fixes the affected scripts, then runs analysis
+  again to catch incorrect fixes. The full Studio Analysis panel remains a
+  documented limitation because its lint/type diagnostics are not exposed as
+  structured MCP data.
+- Added visual playtest checkpoints using `screen_capture` before and after
+  meaningful Play-mode input, plus console checks and no-blind-testing behavior.
+- Updated the agent prompt to require Luau instead of generic Lua and provide
+  the Roblox Engine reference for authoritative API details.
+
+### Safety, vision, and release controls
+- Qwen now keeps `screen_capture` available for newly released or temporarily
+  unnamed models, while explicitly text-only models remain blocked; capability
+  cache keys were refreshed.
+- Added persistent AI access toggles for connected tools and skills. Disabled
+  capabilities are hidden, rejected at dispatch time, and stop active runs.
+- Updated README download links, release documentation, and version metadata to
+  1.5.1 in both the extension and bridge.
 
 All notable changes to ZeroScript Free are documented here.
 
