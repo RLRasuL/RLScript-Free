@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.5.2] - 2026-08-05
+
+### Branding and release metadata
+- Renamed the visible product branding from ZeroScript to **RLScript** across
+  the extension UI, bridge, prompts, popup, and documentation.
+- Preserved legacy internal identifiers and the existing
+  `game.ServerStorage.ZeroScript.Memory` path for compatibility with existing
+  Roblox places and saved sessions.
+- Updated the extension and bridge version to **1.5.2**.
+
+### AI provider support
+- Added Microsoft Copilot support for `https://copilot.microsoft.com/`.
+- Added Copilot to the manifest permissions, provider routing, AI switcher,
+  popup host list, and supported-provider documentation.
+- Added a resilient semantic Copilot adapter for signed-in chat composers,
+  messages, send/stop controls, loading state, and reply extraction.
+
+### Assets
+- Replaced the extension and project icon assets with the supplied RL logo.
+
 ## [1.5.1] - 2026-08-05
 
 ### Provider and site support

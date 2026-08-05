@@ -3,7 +3,7 @@ const KOFI_URL = "https://ko-fi.com/sebattfg";
 const SUPPORTED_HOSTS = [
   "chat.deepseek.com", "deepseek.com", "gemini.google.com", "www.kimi.com", "kimi.com",
   "chat.z.ai", "chat.qwen.ai", "arena.ai", "www.meta.ai", "meta.ai",
-  "agent.minimax.io", "grok.com", "claude.ai", "chatgpt.com",
+  "agent.minimax.io", "grok.com", "claude.ai", "chatgpt.com", "copilot.microsoft.com",
 ];
 const DEFAULT_AI_URL = "https://chat.deepseek.com/";
 

@@ -302,7 +302,7 @@ const ZSProvider = (() => {
   const assistantCount = () => assistantItems().length;
   const userCount = () => document.querySelectorAll(S.userItem).length;
 
-  // Scope to the site's composer only; skip ZeroScript's own injected textarea
+  // Scope to the site's composer only; skip RLScript's own injected textarea
   // (#zs-set-text inside #zs-root) so login pages without a site editor return
   // null and the send-hook guards stay intact.
   const getEditor = () => {
@@ -633,7 +633,7 @@ const ZSProvider = (() => {
     if (!text || text.length <= SEND_CAP) return text;
     const omitted = text.length - SEND_MAX;
     const marker =
-      `\n\n[…ZeroScript: result truncated to fit Qwen's ${SEND_CAP}-character input ` +
+      `\n\n[…RLScript: result truncated to fit Qwen's ${SEND_CAP}-character input ` +
       `limit - ${omitted} of ${text.length} characters omitted. Do NOT re-run the ` +
       `command; work with the head and tail shown here…]\n\n`;
     const budget = SEND_MAX - marker.length;
@@ -850,7 +850,7 @@ const ZSProvider = (() => {
 
   // NOTE: an "⚠ unstable" badge used to be injected next to Qwen's "Auto"/"Think"
   // thinking-modes, on the theory that those modes fired the model's OWN native
-  // tool-calls instead of ZeroScript commands. Removed 2026-07: the real cause of
+  // tool-calls instead of RLScript commands. Removed 2026-07: the real cause of
   // the flaky thinking-mode turns was the premature-`done` regression (Qwen's SSE
   // emitting `status:"finished"` ~12s before the stream ends - see genActive and
   // qwen-net.js), which made the loop fire the still-incomplete command mid-stream.

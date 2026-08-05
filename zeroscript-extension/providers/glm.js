@@ -119,7 +119,7 @@ const ZSProvider = (() => {
   const assistantItems = () => [...document.querySelectorAll(S.assistantItem)];
   const assistantCount = () => assistantItems().length;
   const userCount = () => document.querySelectorAll(S.userItem).length;
-  // Scope to the SITE's composer only: skip ZeroScript's own injected UI (the
+  // Scope to the SITE's composer only: skip RLScript's own injected UI (the
   // settings textarea #zs-set-text in #zs-root). On login/OAuth pages with no
   // site editor this returns null, keeping the "not on a chat page" guard in
   // the send hooks intact (otherwise our own textarea would defeat it and the

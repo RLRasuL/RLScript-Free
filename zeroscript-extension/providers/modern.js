@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// providers/modern.js - MiniMax Agent, Arena Agent, Grok, ChatGPT, and Claude
+// providers/modern.js - MiniMax Agent, Arena Agent, Grok, ChatGPT, Claude, and Copilot
 // web adapters.
 //
 // These sites are all React-style applications whose DOM changes more often
@@ -106,6 +106,30 @@ const ZSProvider = (() => {
               '[data-testid="message-content"],[data-testid*="message-content"],' +
               '[class*="markdown"],[class*="prose"]',
             fresh: /^\/$/,
+          }
+      : host === "copilot.microsoft.com"
+        ? {
+            id: "copilot",
+            displayName: "Copilot",
+            editor:
+              'textarea[placeholder*="message" i],textarea[placeholder*="Ask" i],' +
+              '[contenteditable="true"][role="textbox"],[contenteditable="true"]',
+            item:
+              '[data-testid*="message"],[data-testid*="conversation"],' +
+              '[data-message-id],[role="article"],article',
+            send:
+              'button[aria-label*="Send" i],button[aria-label*="Submit" i],' +
+              'button[data-testid*="send"],button[type="submit"]',
+            stop:
+              'button[aria-label*="Stop" i],button[aria-label*="Cancel" i],' +
+              'button[data-testid*="stop"]',
+            thinking:
+              '[data-testid*="thinking"],[data-testid*="loading"],' +
+              '[class*="thinking"],[class*="loading"],[aria-busy="true"]',
+            reply:
+              '[data-testid*="message-content"],[data-testid*="response"],' +
+              '[class*="markdown"],[class*="prose"],[role="article"]',
+            fresh: /^\/(?:|new|chat|conversation)?$/,
           }
       : {
           id: "claude",
@@ -234,7 +258,7 @@ const ZSProvider = (() => {
     if (!ed) return null;
 
     // Grok's form is taller than the actual rounded query bar. Anchoring to the
-    // form puts the ZeroScript strip on top of the placeholder; the query-bar
+    // form puts the RLScript strip on top of the placeholder; the query-bar
     // surface is the stable element that owns the editor and action row.
     if (SITE.id === "grok") {
       let n = ed;
@@ -340,7 +364,7 @@ const ZSProvider = (() => {
           const candidate = block.closest(
             '[data-message-id],[data-testid*="message"],[data-testid*="turn"],article,[class*="prose"]'
           );
-          // If the closest prose node is the long ZeroScript bootstrap prompt,
+          // If the closest prose node is the long RLScript bootstrap prompt,
           // use the actual command block instead of merging the prompt and the
           // assistant reply into one conversation item.
           const candidateText = candidate && (candidate.innerText || candidate.textContent || "");
@@ -751,7 +775,7 @@ const ZSProvider = (() => {
   function installSendHooks(handlers) {
     if (SITE.id === "arena-agent") {
       // Arena's task-feedback panel treats Escape as "dismiss this panel".
-      // During a ZeroScript run that can hide Continue Work before the loop
+      // During a RLScript run that can hide Continue Work before the loop
       // gets a chance to resume the assistant turn, leaving the tool chip grey.
       const blockArenaFeedbackEscape = (event) => {
         if (event.key !== "Escape" || !findContinueBtn()) return;
@@ -825,7 +849,7 @@ const ZSProvider = (() => {
     id: SITE.id,
     displayName: SITE.displayName,
     unstableWarning: SITE.id === "arena-agent"
-      ? "UNSTABLE: Arena Agent mode is not currently reliable with ZeroScript. Commands may remain 'not run'; use Arena Direct for stable operation."
+      ? "UNSTABLE: Arena Agent mode is not currently reliable with RLScript. Commands may remain 'not run'; use Arena Direct for stable operation."
       : "",
     supportsVision: true,
     timings,

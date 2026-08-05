@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ZeroScript Free × Roblox Studio Agent",
-  "version": "1.5.1",
-  "description": "Turn DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok or Claude into a Roblox Studio agent that drives Studio through a local bridge.",
+  "name": "RLScript Free × Roblox Studio Agent",
+  "version": "1.5.2",
+  "description": "Turn DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT or Copilot into a Roblox Studio agent that drives Studio through a local bridge.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://chat.deepseek.com/*",
@@ -19,6 +19,7 @@
     "https://grok.com/*",
     "https://claude.ai/*",
     "https://chatgpt.com/*",
+    "https://copilot.microsoft.com/*",
     "http://127.0.0.1/*",
     "ws://127.0.0.1/*"
   ],
@@ -32,7 +33,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ZeroScript Free",
+    "default_title": "RLScript Free",
     "default_icon": {
       "16": "icon.png",
       "48": "icon.png",
@@ -115,6 +116,12 @@
     },
     {
       "matches": ["https://chatgpt.com/*"],
+      "js": ["core/config.js", "core/parser.js", "providers/modern.js", "core/main.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://copilot.microsoft.com/*"],
       "js": ["core/config.js", "core/parser.js", "providers/modern.js", "core/main.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"

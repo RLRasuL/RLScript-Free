@@ -8,7 +8,7 @@ const ZS = (() => {
 
   // Display name + unique marker injected at the top of the system prompt so the
   // content script can reliably recognise (and camouflage) the bootstrap turn.
-  const APP_NAME = "ZeroScript";
+  const APP_NAME = "RLScript";
   const SYS_MARKER = "⟦ZS-SYS⟧";
 
   // ── Tool → visual category (icon + colour theme for the chips) ─────────
@@ -47,12 +47,12 @@ const ZS = (() => {
       const objAlt = otherCmd ? "" : " (or ###...### block)";
       const notes = {
         malformed:
-          "ERROR: a ZeroScript command was detected in your reply but its JSON could not be parsed. " +
+          "ERROR: a RLScript command was detected in your reply but its JSON could not be parsed. " +
           'Rewrite it as a single valid JSON object in plain text, exactly like {"command": "name", "params": {...}}' +
           luaMalformed + ". You may add a short note around it. " +
           "Please retry.",
         unclosed:
-          "ERROR: your ZeroScript command was cut off before it finished - the JSON object" +
+          "ERROR: your RLScript command was cut off before it finished - the JSON object" +
           objAlt + " never closed, so it could not run. Rewrite the WHOLE command in one " +
           'piece as valid JSON, exactly like {"command": "name", "params": {...}}' +
           luaUnclosed + ". Please retry.",
@@ -86,7 +86,7 @@ const ZS = (() => {
       "confirm it is back; otherwise run list_mcp_servers and continue on another connected " +
       "server for anything that does not need Roblox.",
     bridgeOffline:
-      "ERROR: the local ZeroScript bridge is unreachable, so no command could run. " +
+      "ERROR: the local RLScript bridge is unreachable, so no command could run. " +
       "This is an environment problem on the user's machine (the bridge is not " +
       "running, or Roblox Studio is closed), NOT your mistake. Tell the user in " +
       "one short sentence that the bridge or Roblox Studio is offline, then stop " +
@@ -121,7 +121,7 @@ const ZS = (() => {
   // customPrompt }. `customPrompt` is the user's own extra instructions; when
   // present it is appended at the very bottom under a clear "User's Custom prompt"
   // heading. It NEVER edits the prompt above - it only adds a layer below it.
-  // ZeroScript skills are short, on-demand instruction bundles. They stay out
+  // RLScript skills are short, on-demand instruction bundles. They stay out
   // of the bootstrap body so every session does not pay their full token cost;
   // the model loads one with the virtual `use_skill` command only when a task
   // matches it. Roblox Studio's own `skill` MCP command remains available
@@ -132,11 +132,11 @@ const ZS = (() => {
       body: [
         "# Script Analysis Fix",
         "",
-        "This is a built-in ZeroScript bridge skill loaded with `use_skill`; it does not require a personal Roblox Studio skill with the same name.",
+        "This is a built-in RLScript bridge skill loaded with `use_skill`; it does not require a personal Roblox Studio skill with the same name.",
         "",
         "Use this as the final pass after any Roblox code change, or when the user asks to inspect or fix Script Analysis issues.",
         "",
-        "1. Call `script_analysis` first. It is a text-first ZeroScript check that compiles every Luau source in the requested scope and returns structured syntax diagnostics plus conservative warnings such as unknown globals. It still does not expose Roblox Studio's complete lint/type-warning list, because the current Roblox MCP API has no structured getter for the built-in Script Analysis panel.",
+        "1. Call `script_analysis` first. It is a text-first RLScript check that compiles every Luau source in the requested scope and returns structured syntax diagnostics plus conservative warnings such as unknown globals. It still does not expose Roblox Studio's complete lint/type-warning list, because the current Roblox MCP API has no structured getter for the built-in Script Analysis panel.",
         "2. If the result has zero errors and zero warnings, make no edits and report that this check is clean; a second check is not needed because nothing changed.",
         "3. If the result has one or more errors or warnings, use `script_read` to read each affected script, then make the smallest behavior-preserving correction with `multi_edit`. After making edits, call `script_analysis` again to verify that the fixes were correct. Repeat the read/fix/recheck cycle only while new errors or warnings remain.",
         "4. Call `get_console_output` only when runtime errors or warnings matter to the requested change; keep runtime output separate from static syntax diagnostics.",
@@ -167,13 +167,13 @@ const ZS = (() => {
   const VIRTUAL_TOOLS = Object.freeze([
     Object.freeze({
       name: "use_skill",
-      description: "Load a ZeroScript skill on demand before following a matching workflow.",
+      description: "Load a RLScript skill on demand before following a matching workflow.",
       inputSchema: Object.freeze({
         type: "object",
         properties: Object.freeze({
           skill_name: Object.freeze({
             type: "string",
-            description: "Exact ZeroScript skill name. Available: script-analysis-fix, playtest-visual"
+            description: "Exact RLScript skill name. Available: script-analysis-fix, playtest-visual"
           })
         }),
         required: Object.freeze(["skill_name"])
@@ -202,12 +202,12 @@ const ZS = (() => {
 
   function skillPrompt(enabled = true) {
     if (!enabled) {
-      return "SKILLS: ZeroScript skills are disabled by the user for this session. Do not call `use_skill` or the Roblox Studio `skill` command.";
+      return "SKILLS: RLScript skills are disabled by the user for this session. Do not call `use_skill` or the Roblox Studio `skill` command.";
     }
     const names = Object.entries(BUILTIN_SKILLS)
       .map(([name, skill]) => `- ${name}: ${skill.description}`)
       .join("\n");
-    return "SKILLS: ZeroScript supports on-demand local skills. After a Roblox code change, load the matching skill with `use_skill` and follow its instructions. " +
+    return "SKILLS: RLScript supports on-demand local skills. After a Roblox code change, load the matching skill with `use_skill` and follow its instructions. " +
       "The Roblox Studio MCP also exposes a separate `skill` command for Roblox-authored or personal Studio skills; use that only when the user asks for one or when a matching Studio skill is advertised. " +
       "Do not call `screen_capture` for a skill that can be completed with text tools when this AI cannot see images.\n" + names;
   }
@@ -225,24 +225,24 @@ const ZS = (() => {
       "Whenever you write or edit Roblox scripts, use Luau syntax and Roblox APIs, " +
       "and do not target a plain Lua runtime. If authoritative Luau or Roblox Engine " +
       "API details are needed, consult https://create.roblox.com/docs/reference/engine. " +
-      "Keep ZeroScript command blocks in the exact formats below.";
+      "Keep RLScript command blocks in the exact formats below.";
 
     const accessPrompt = [
       "USER ACCESS CONTROLS:",
       allowAiTools
-        ? "ZeroScript tools are enabled. You may use the advertised commands when they are needed."
-        : "ZeroScript tools are disabled by the user. Do not write or attempt any ZeroScript command, including list_commands, list_mcp_servers, execute_luau, multi_edit, or script_analysis; answer conversationally and explain that the user must re-enable tools before you can act in Studio.",
+        ? "RLScript tools are enabled. You may use the advertised commands when they are needed."
+        : "RLScript tools are disabled by the user. Do not write or attempt any RLScript command, including list_commands, list_mcp_servers, execute_luau, multi_edit, or script_analysis; answer conversationally and explain that the user must re-enable tools before you can act in Studio.",
       allowAiSkills
-        ? "ZeroScript skills are enabled. Load a matching skill only when its workflow is relevant."
-        : "ZeroScript skills are disabled by the user. Do not call use_skill or the Roblox Studio skill command.",
+        ? "RLScript skills are enabled. Load a matching skill only when its workflow is relevant."
+        : "RLScript skills are disabled by the user. Do not call use_skill or the Roblox Studio skill command.",
     ].join("\n");
 
-    const prompt = `CONTEXT: the user has installed a browser extension called ZeroScript in their own browser. Here is how it works, so you can use it on their behalf:
-A browser extension (ZeroScript) is running inside this page. It watches your replies. When it detects a ZeroScript command in your text, it runs it against one or more connected MCP servers and sends the result back as the next message. You always receive a result - success or a formatted ERROR - so you can keep going on your own.
+    const prompt = `CONTEXT: the user has installed a browser extension called RLScript in their own browser. Here is how it works, so you can use it on their behalf:
+A browser extension (RLScript) is running inside this page. It watches your replies. When it detects a RLScript command in your text, it runs it against one or more connected MCP servers and sends the result back as the next message. You always receive a result - success or a formatted ERROR - so you can keep going on your own.
 
-${allowAiTools ? "The user's open Roblox Studio place, reached through a local bridge, is always connected by default - call `list_commands` FIRST for its exact commands with full parameter details. Other MCP servers may ALSO be connected alongside it (each with its own command set) - you are NOT told about them upfront. So: the MOMENT the user names ANY app/tool/target that is not Roblox Studio (e.g. \"Blender\", \"Sketchfab\", or anything else you don't recognise as a Roblox Studio command), you MUST run `list_mcp_servers` FIRST, before replying - never answer from your own assumptions or prior knowledge about what is or isn't connected." : "The user has disabled ZeroScript tools, so do not call list_commands, list_mcp_servers, or any other ZeroScript command. Do not attempt to act on Roblox Studio until the user enables tools again."} You do not need any special capability yourself - you just write text. The extension does the rest.
+${allowAiTools ? "The user's open Roblox Studio place, reached through a local bridge, is always connected by default - call `list_commands` FIRST for its exact commands with full parameter details. Other MCP servers may ALSO be connected alongside it (each with its own command set) - you are NOT told about them upfront. So: the MOMENT the user names ANY app/tool/target that is not Roblox Studio (e.g. \"Blender\", \"Sketchfab\", or anything else you don't recognise as a Roblox Studio command), you MUST run `list_mcp_servers` FIRST, before replying - never answer from your own assumptions or prior knowledge about what is or isn't connected." : "The user has disabled RLScript tools, so do not call list_commands, list_mcp_servers, or any other RLScript command. Do not attempt to act on Roblox Studio until the user enables tools again."} You do not need any special capability yourself - you just write text. The extension does the rest.
 
-CRITICAL - technical note, not a restriction: this site's own tools (code interpreter, function calling, connectors, etc.) run in a separate sandbox that has no access to the user's Roblox Studio or the other MCP servers above - so calling them wouldn't reach the user's project at all. ZeroScript commands are different: they are plain JSON typed directly into your normal reply text, which this extension reads and executes against the connected servers. So for anything involving the user's project, write the JSON below as ordinary text instead of calling a function - that's the only channel that actually reaches their machine. (If the user explicitly asks you to search the web, your own web search still works fine and is unrelated to this.) Internal reasoning (deep-think modes) is fine.
+CRITICAL - technical note, not a restriction: this site's own tools (code interpreter, function calling, connectors, etc.) run in a separate sandbox that has no access to the user's Roblox Studio or the other MCP servers above - so calling them wouldn't reach the user's project at all. RLScript commands are different: they are plain JSON typed directly into your normal reply text, which this extension reads and executes against the connected servers. So for anything involving the user's project, write the JSON below as ordinary text instead of calling a function - that's the only channel that actually reaches their machine. (If the user explicitly asks you to search the web, your own web search still works fine and is unrelated to this.) Internal reasoning (deep-think modes) is fine.
 
 ⚠️ FORMATTING RULE (MANDATORY): every command goes inside a fenced code block (triple backticks). Outside a code block this page renders your text as Markdown - it turns things like \`Instance.new\` into links and mangles the ### markers, silently CORRUPTING the command. Inside a code block it is kept verbatim.
 
@@ -283,7 +283,7 @@ ${allowAiSkills ? " - VISUAL PLAYTESTS: when the task involves gameplay, UI, cam
 ━━━ PROJECT MEMORY (persistent notes about THIS project) ━━━
 The ModuleScript at game.ServerStorage.ZeroScript.Memory is your long-term memory for this project, saved inside the place. It is SHARED by every AI across all sessions and chats, so keep it accurate for whoever reads it next. Store ONLY durable, useful facts: what the project is, where key scripts/instances live, naming and code conventions, how the main systems work, decisions and gotchas, and the user's preferences. It is NOT a task log - never dump transient steps, obvious facts, or whole scripts into it. Keep it short.
 
-- READ IT WHEN THE WORK NEEDS IT (not at startup): the FIRST time the user's request requires editing the place or understanding how the game works, read your memory BEFORE doing that work - script_read game.ServerStorage.ZeroScript.Memory. Skip it for pure chit-chat or questions unrelated to the project. If it does not exist yet, create it with multi_edit (className "ModuleScript", first edit with old_string "") using exactly this skeleton (multi_edit auto-creates the ZeroScript folder):
+- READ IT WHEN THE WORK NEEDS IT (not at startup): the FIRST time the user's request requires editing the place or understanding how the game works, read your memory BEFORE doing that work - script_read game.ServerStorage.ZeroScript.Memory. Skip it for pure chit-chat or questions unrelated to the project. If it does not exist yet, create it with multi_edit (className "ModuleScript", first edit with old_string "") using exactly this skeleton (multi_edit auto-creates the legacy ZeroScript folder):
 ${BT}
 return [==[
 # Project memory
@@ -355,7 +355,7 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
     user_keyboard_input:
       "Simulates a real player typing during PLAY. REQUIRES \"datamodel_type\":\"Client\" AND the game RUNNING - the Client " +
       "datamodel only exists in play mode, so first call start_stop_play {\"is_start\": true}; in Edit mode this fails. " +
-      "(ZeroScript auto-fills datamodel_type:\"Client\" if you omit it, but the game must still be running.) " +
+      "(RLScript auto-fills datamodel_type:\"Client\" if you omit it, but the game must still be running.) " +
       "\"actions\" is an ORDERED array of OBJECTS - each step MUST be {\"action\": ...}, NOT a bare string (a missing/misnamed action " +
       "gives 'Unknown ... action: nil'). action is one of: keyDown | keyUp | keyPress (down+up) | textInput | wait. " +
       "key_code uses Roblox KeyCode NAMES, not raw characters: Enter=\"Return\", digits=\"Zero\"..\"Nine\", letters=single uppercase " +
@@ -386,9 +386,9 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
       "Example: {\"datamodel_type\":\"Client\",\"actions\":[{\"action\":\"mouseButtonClick\",\"mouse_button\":\"left\",\"instance_path\":\"LocalPlayer.PlayerGui.Menu.PlayBtn\"}]}.",
     skill:
       "Loads one Roblox Studio-authored or personal skill by its exact skill_name. Use it once before a matching workflow, then follow the returned instructions. " +
-      "If a requested personal skill is not available, report that plainly and use the closest ZeroScript skill or normal commands.",
+      "If a requested personal skill is not available, report that plainly and use the closest RLScript skill or normal commands.",
     use_skill:
-      "Loads one local ZeroScript skill by exact name. Use script-analysis-fix after Roblox code changes and playtest-visual for gameplay/UI testing with visual checkpoints.",
+      "Loads one local RLScript skill by exact name. Use script-analysis-fix after Roblox code changes and playtest-visual for gameplay/UI testing with visual checkpoints.",
     screen_capture:
       "Captures the current Roblox Studio viewport and returns image data. Use it during Play mode after meaningful input so a vision-capable AI can verify the actual result. Follow the exact optional parameters shown by list_commands.",
     script_analysis:
@@ -399,14 +399,14 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
   // A short, clearly-labelled reminder of the available commands, injected under
   // a tool result every so often so the model does not drift from the exact
   // command names over a long session. It is explicitly framed as an automatic
-  // ZeroScript reminder (NOT a user message and NOT a new command to run).
+  // RLScript reminder (NOT a user message and NOT a new command to run).
   function toolsReminder(tools) {
     const toolsString =
       "  list_commands() - list all available Roblox Studio commands with full parameter details\n" +
       compactTools(tools);
     return (
       "\n\n────────────────────────────────\n" +
-      "(System note from ZeroScript - this is an automatic REMINDER, not a request and not a new result. " +
+      "(System note from RLScript - this is an automatic REMINDER, not a request and not a new result. " +
       "Do NOT reply to it or run any command because of it; just keep it in mind for your next command.)\n" +
       "Reminder of the Roblox Studio commands (use exact names and parameter keys; " +
       "for other connected apps call list_mcp_servers):\n" +

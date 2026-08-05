@@ -1,33 +1,33 @@
-# ZeroScript - Free AI Agent for Roblox Studio
+# RLScript - Free AI Agent for Roblox Studio
 
 ![GitHub stars](https://img.shields.io/github/stars/sebattfg/ZeroScript-Free?style=social)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
-**ZeroScript** is a free browser extension that turns DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude or ChatGPT into a Roblox Studio AI agent.
+**RLScript** (formerly ZeroScript) is a free browser extension that turns DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT or Copilot into a Roblox Studio AI agent.
 Control Roblox Studio with AI directly from your browser - read/edit scripts, run Luau, generate assets, all from a normal AI chat. No API key, no terminal, no coding needed.
 
 > 🌐 **Website: [zeroscript-five.vercel.app](https://zeroscript-five.vercel.app)** the free Lemonade.gg / Luamotion alternative for building Roblox games with AI.
 
-Supported AI entry points include **DeepSeek** (chat.deepseek.com, recommended), **Google Gemini** (gemini.google.com), **Kimi** (kimi.com, Moonshot AI), **GLM** (chat.z.ai, Z.ai), **Qwen** (chat.qwen.ai), **Arena Agent** (arena.ai/agent), **Meta AI** (meta.ai), **MiniMax** (agent.minimax.io), **Grok** (grok.com), **Claude** (claude.ai) and **ChatGPT** (chatgpt.com). MiniMax, Grok, Claude and ChatGPT may require you to be signed in before starting a session.
+Supported AI entry points include **DeepSeek** (chat.deepseek.com, recommended), **Google Gemini** (gemini.google.com), **Kimi** (kimi.com, Moonshot AI), **GLM** (chat.z.ai, Z.ai), **Qwen** (chat.qwen.ai), **Arena Agent** (arena.ai/agent), **Meta AI** (meta.ai), **MiniMax** (agent.minimax.io), **Grok** (grok.com), **Claude** (claude.ai), **ChatGPT** (chatgpt.com) and **Copilot** (copilot.microsoft.com). MiniMax, Grok, Claude, ChatGPT and Copilot may require you to be signed in before starting a session.
 
 > 💬 **Stuck? Join the [Discord community](https://discord.gg/9aNyZsMWcb)** get help, share feedback, and follow updates.
 
 > *Also known as: ZeroScript Roblox, ZeroScript free download, Roblox DeepSeek agent, Roblox Gemini agent, Roblox Kimi agent, Roblox GLM agent, Roblox Qwen agent, Roblox Arena agent, Roblox Meta AI agent, Roblox Studio AI automation, Luau AI, MCP Roblox, lemonade alternative free, lemonade.gg alternative, free Roblox AI agent, free lemonade roblox alternative*
 
-## ⚠️ ZeroScript is Free Beware of Paid Copycats
+## ⚠️ RLScript is Free Beware of Paid Copycats
 
-ZeroScript is 100% free and open-source. It always has been, and it always will be. There is no official paid version, no subscription, and no sign-in required to use the extension.
+RLScript is 100% free and open-source. It always has been, and it always will be. There is no official paid version, no subscription, and no sign-in required to use the extension.
 
-If you come across a site or extension using the ZeroScript name that asks for payment or account creation, it is **not** this project. The only official links are the ones listed at the top of this README.
+If you come across a site or extension using the RLScript or ZeroScript name that asks for payment or account creation, it is **not** this project. The only official links are the ones listed at the top of this README.
 
 ## How it works
 
 ```
-AI chat (DeepSeek / Gemini / Kimi / GLM / Qwen / Arena / Meta AI / MiniMax / Grok / Claude / ChatGPT, in your browser) -> ZeroScript Extension -> Bridge (your PC) -> Roblox Studio
+AI chat (DeepSeek / Gemini / Kimi / GLM / Qwen / Arena / Meta AI / MiniMax / Grok / Claude / ChatGPT / Copilot, in your browser) -> RLScript Extension -> Bridge (your PC) -> Roblox Studio
 ```
 
-The extension runs inside the chat page (DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude or ChatGPT). When you type a request, it sends commands to the Bridge running on your PC, which drives Roblox Studio through the built-in MCP server.
+The extension runs inside the chat page (DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT or Copilot). When you type a request, it sends commands to the Bridge running on your PC, which drives Roblox Studio through the built-in MCP server.
 
 ## Download
 
@@ -71,14 +71,14 @@ A small window opens, that means the Bridge is running.
 
 ### 4. Start a session
 
-Go to https://chat.deepseek.com (recommended), https://gemini.google.com, https://www.kimi.com, https://chat.z.ai, https://chat.qwen.ai, https://arena.ai/agent, https://agent.minimax.io, https://grok.com, https://claude.ai or https://chatgpt.com and open a new chat. The ZeroScript bar appears above the input box. Click **Start session**. Type what you want to build.
+Go to https://chat.deepseek.com (recommended), https://gemini.google.com, https://www.kimi.com, https://chat.z.ai, https://chat.qwen.ai, https://arena.ai/agent, https://agent.minimax.io, https://grok.com, https://claude.ai, https://chatgpt.com or https://copilot.microsoft.com and open a new chat. The RLScript bar appears above the input box. Click **Start session**. Type what you want to build.
 
 > Only works on the supported AI sites listed above - it will not work on any other site.
 > Gemini and Kimi can be unstable (model behavior, not the extension): Gemini may stop using the Roblox tools after a while, and Kimi may use its own native tools instead. If the AI starts answering in plain text instead of acting, remind it to use the commands or start a new session.
 
 ## Skills and final code checks
 
-ZeroScript includes small, on-demand bridge skills. The local `use_skill`
+RLScript includes small, on-demand bridge skills. The local `use_skill`
 command loads built-in workflows such as `script-analysis-fix` and
 `playtest-visual`, while the Roblox Studio MCP `skill` command remains available
 for Roblox-authored or personal Studio skills. Skills are loaded only when
@@ -90,13 +90,13 @@ makes no edits. If diagnostics are found, it reads the affected scripts, fixes
 them with `multi_edit`, and checks again so an incorrect fix is caught. This
 works for AIs without vision. The current Roblox MCP does not
 expose the Script Analysis panel's full lint/type-warning list as structured
-text, so ZeroScript reports that limitation instead of pretending this check is
+text, so RLScript reports that limitation instead of pretending this check is
 the complete panel result. No separate
 find-and-replace skill is enabled: `multi_edit` remains safer and more precise
 for targeted changes.
 
 The menu's **AI access** section lets you disable all connected AI tools or all
-ZeroScript/Studio skills independently. The choices are saved locally and are
+RLScript/Studio skills independently. The choices are saved locally and are
 enforced when a command is dispatched, so a disabled capability cannot be used
 by an active session.
 
@@ -110,6 +110,40 @@ only an explicitly text-only model is blocked from receiving images.
 
 [Watch the setup tutorial on YouTube](https://youtu.be/kPKiZLZ9_Ps)
 
+## Connect extra MCP servers (GitHub, Blender, ...)
+
+The bridge can run any MCP server next to Roblox Studio. Each extra server's
+commands are advertised to the AI - it discovers them by running
+`list_mcp_servers` whenever you name an app that is not Roblox Studio
+(e.g. "use GitHub to ..."). `config.json` lists the servers the bridge starts.
+
+### GitHub (already configured)
+
+1. Install **Node.js** from https://nodejs.org - required to run the GitHub
+   server via npx (the bridge starts it automatically from `config.json`).
+2. Create a GitHub Personal Access Token at https://github.com/settings/tokens
+   - a classic token with the `repo` scope, or a fine-grained token with
+   read/write on the repositories you need.
+3. Put the token in your environment so the bridge can read it (it is picked up
+   at bridge startup, never stored in config.json - that file is safe to share):
+   - **Windows:** open a terminal and run
+     `setx GITHUB_PERSONAL_ACCESS_TOKEN "ghp_your_token"` (Windows expands
+     `%VAR%` syntax, which is what config.json uses).
+   - **macOS/Linux:** add `export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_your_token"`
+     to your shell profile (and change the env value in config.json to
+     `$GITHUB_PERSONAL_ACCESS_TOKEN`).
+4. Restart the bridge (close its window, run start.bat again). You should see
+   `[github] MCP server up (N tools advertised)` in the terminal.
+5. In your AI chat say something like "use GitHub to list my repos" - the AI
+   runs `list_mcp_servers`, sees the GitHub commands, and can create issues,
+   read/write repos, and more.
+
+To disable GitHub again, remove the `github` block from `config.json` and
+restart the bridge. The `@modelcontextprotocol/server-github` package is
+deprecated in favour of GitHub's newer server - if you prefer the maintained
+`github-mcp-server` binary, replace `command`/`args` with its path and
+`["stdio"]` as the first argument, keeping the same env token.
+
 ## What the AI can do
 
 - Read and edit scripts
@@ -119,6 +153,17 @@ only an explicitly text-only model is blocked from receiving images.
 - Browse and insert from the Creator Store
 - Control play-testing
 - **Remember your project across sessions** persistent project memory saved inside your place
+
+## New in 1.5.2
+
+- **Product rename:** the visible extension and bridge branding is now RLScript;
+  legacy internal identifiers and Roblox memory paths remain compatible with
+  existing installations.
+- **Microsoft Copilot support:** Copilot at `copilot.microsoft.com` is now
+  available in the provider list and uses the modern semantic chat adapter.
+- **New RL icon:** the supplied RL logo is bundled for the extension and project
+  assets.
+- **Version:** the extension and bridge are updated to 1.5.2.
 
 ## New in 1.5.1
 
@@ -190,10 +235,11 @@ See [CHANGELOG.md](CHANGELOG.md) for older releases.
 - Roblox Studio (MCP support built-in)
 - Microsoft Edge or Chrome
 - Python 3.9+ (installed automatically on Windows, or install it yourself on macOS - see [python.org/downloads](https://www.python.org/downloads/))
+- Node.js 16+ - only needed for extra MCP servers that run via npx (e.g. GitHub)
 
 ## Support
 
-ZeroScript is free. If it saves you time: [Ko-fi](https://ko-fi.com/sebattfg) - Robux tip passes available in the extension panel
+RLScript is free. If it saves you time: [Ko-fi](https://ko-fi.com/sebattfg) - Robux tip passes available in the extension panel
 
 ---
 
