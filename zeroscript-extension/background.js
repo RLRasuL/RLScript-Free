@@ -697,7 +697,8 @@ const zsSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function extOpenMenuInTab(tabId) {
   // Probe the tab's content script. "ok" = it answered zs-open-menu (this
   // build); "stale" = a receiver exists but did not answer (pre-update build);
-  // "missing" = not injected yet (page still loading).
+  // "missing" = not injected yet (page still loading, or a host we don't run
+  // on - never reload for pure "missing", that would only loop).
   const probe = async () => {
     try {
       const resp = await chrome.tabs.sendMessage(tabId, { type: "zs-open-menu" });
@@ -706,20 +707,21 @@ async function extOpenMenuInTab(tabId) {
       return "missing";
     }
   };
-  for (let round = 0; round < 3; round++) {
-    for (let i = 0; i < 40; i++) { // ~20s of polling per round
+  for (let round = 0; round < 2; round++) {
+    for (let i = 0; i < 24; i++) { // ~12s of polling per round
       const s = await probe();
       if (s === "ok") return { ok: true };
-      if (s === "stale") break; // old build -> reload the tab once
+      if (s === "stale") break; // old build -> reload ONCE, then it must answer
       await zsSleep(500);
     }
+    if (round === 1) break; // never a second reload
     try {
       await chrome.tabs.reload(tabId);
     } catch (e) {
       return { ok: false, error: String(e && e.message || e) };
     }
   }
-  return { ok: false, error: "tab did not answer after reloading" };
+  return { ok: false, error: "tab did not answer" };
 }
 
 connect();

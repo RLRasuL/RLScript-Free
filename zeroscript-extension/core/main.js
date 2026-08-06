@@ -41,7 +41,9 @@
   const ZS_DIAG_MAX = 300;
   const _diag = [];
   function diag(event, data) {
-    const snap = { ...P.snapshot(), gen: P.isGenerating(), run: A.running };
+    let run = null;
+    try { run = A.running; } catch (e) { run = "preinit"; }
+    const snap = { ...P.snapshot(), gen: P.isGenerating(), run };
     const e = { t: Date.now(), iso: new Date().toISOString().slice(11, 23), event,
                 data: data || null, snap };
     _diag.push(e);
@@ -55,7 +57,11 @@
     try { window.__zsDiag = _diag; } catch {}
   }
   P.init({ diag });
-  diag("boot", { url: location.href.slice(0, 160), host: location.host, path: location.pathname, editor: !!P.getEditor(), empty: P.chatIsEmpty(), items: P.allItems().length });
+  try {
+    diag("boot", { url: location.href.slice(0, 160), host: location.host, path: location.pathname, editor: !!P.getEditor(), empty: P.chatIsEmpty(), items: P.allItems ? P.allItems().length : -1, key: P.conversationKey ? P.conversationKey() : null });
+  } catch (e) {
+    try { console.log("[zs] boot diag failed:", e); } catch {}
+  }
 
   // ── [TRACE] Main-thread stall detector ─────────────────────────────────────
   // The reported bug ("tools spin 15-20s, the chip timer stops rising") can only
@@ -4551,7 +4557,7 @@ return result`;
       // bridge actually matters: a fresh/empty chat (the Start affordance is
       // showing) or a conversation with a live/starting session.
       if (!A.started && !A.starting && !P.chatIsEmpty()) {
-        diag("gate.hide", { items: P.allItems().length, editor: !!P.getEditor(), fresh: P.isFreshChat(), key: P.conversationKey(), matches: (P.describeItems ? P.describeItems() : []).slice(0, 12) });
+        diag("gate.hide", { items: P.allItems ? P.allItems().length : -1, editor: !!P.getEditor(), fresh: P.isFreshChat(), key: P.conversationKey ? P.conversationKey() : null, matches: (P.describeItems ? P.describeItems() : []).slice(0, 12) });
         hideSetup(); return;
       }
       showSetup();
@@ -5564,7 +5570,7 @@ return result`;
       ui.setStatus({ connected: msg.connected, mcpAlive: msg.mcpAlive, studio: msg.studio, studioApp: msg.studioApp, studioProc: msg.studioProc, tools: msg.tools, servers: msg.servers });
     }
     if (msg && msg.type === "zs-open-menu") {
-      ui.openMenu(false); // from the popup's Settings button — opens at the top (Switch AI / custom prompt)
+      try { ui.openMenu(false); } catch (e) {} // from the popup's Settings button — opens at the top (Switch AI / custom prompt)
       sendResponse({ ok: true }); // lets the background distinguish this build from a stale tab
     }
     if (msg && msg.type === "zs-ext-update") {
