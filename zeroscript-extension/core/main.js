@@ -55,6 +55,7 @@
     try { window.__zsDiag = _diag; } catch {}
   }
   P.init({ diag });
+  diag("boot", { url: location.href.slice(0, 160), host: location.host, path: location.pathname, editor: !!P.getEditor(), empty: P.chatIsEmpty(), items: P.allItems().length });
 
   // ── [TRACE] Main-thread stall detector ─────────────────────────────────────
   // The reported bug ("tools spin 15-20s, the chip timer stops rising") can only
@@ -4550,7 +4551,7 @@ return result`;
       // bridge actually matters: a fresh/empty chat (the Start affordance is
       // showing) or a conversation with a live/starting session.
       if (!A.started && !A.starting && !P.chatIsEmpty()) {
-        diag("gate.hide", { items: P.allItems().length, editor: !!P.getEditor(), fresh: P.isFreshChat() });
+        diag("gate.hide", { items: P.allItems().length, editor: !!P.getEditor(), fresh: P.isFreshChat(), key: P.conversationKey(), matches: (P.describeItems ? P.describeItems() : []).slice(0, 12) });
         hideSetup(); return;
       }
       showSetup();

@@ -518,6 +518,28 @@ const ZSProvider = (() => {
   }
 
   const chatIsEmpty = () => allItems().length === 0;
+
+  function describeItems() {
+    // Diagnostic for console reports when the Start gate misbehaves on a live
+    // page: what exactly the item selector matched, where, and what it says.
+    const out = [];
+    try {
+      for (const el of document.querySelectorAll(SITE.item)) {
+        const attrs = ["data-content", "data-testid", "data-message-id", "data-id", "role", "aria-label", "id"]
+          .map((a) => { const v = el.getAttribute(a); return v ? `${a}="${v}"` : null; })
+          .filter(Boolean).join(" ");
+        let inSidebar = false, n = el.parentElement;
+        while (n) {
+          if (n.tagName === "NAV" || n.tagName === "ASIDE" ||
+              (n.getAttribute && (n.getAttribute("aria-label") === "Sidebar" ||
+                n.getAttribute("role") === "navigation"))) { inSidebar = true; break; }
+          n = n.parentElement;
+        }
+        out.push(`<${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""} class="${(el.className || "").toString().slice(0, 100)}" ${attrs} side:${inSidebar} txt:"${(el.innerText || el.textContent || "").trim().slice(0, 60)}">`);
+      }
+    } catch (e) { out.push("err:" + e); }
+    return out;
+  }
   const isFreshChat = () => chatIsEmpty() && !!getEditor() && SITE.fresh.test(location.pathname);
 
   function textWithout(root, excludeSel) {
@@ -789,7 +811,27 @@ const ZSProvider = (() => {
     }
   }
 
-  const conversationKey = () => location.pathname + location.search;
+  const conversationKey = () => {
+    // Copilot has NO per-conversation URL: a fresh chat, an old conversation
+    // and a live session all share path "/". A URL-based key therefore made
+    // one remembered session stick to EVERY Copilot chat - after the first
+    // session every fresh chat looked "already started", the bar rendered
+    // "Agent active" instead of "▶ Start Roblox agent", and the poison state
+    // survived extension reinstalls because chrome.storage persists across
+    // them. Key Copilot's conversation off the DOM thread instead: stable
+    // for the life of a thread (its first message's id), and "" on an empty
+    // chat, so a fresh chat can never be "already started".
+    if (SITE.id === "copilot") {
+      if (chatIsEmpty()) return "";
+      const first = allItems()[0];
+      if (!first) return "";
+      return first.getAttribute("data-message-id") ||
+        first.getAttribute("data-id") ||
+        first.getAttribute("data-testid") ||
+        "";
+    }
+    return location.pathname + location.search;
+  };
 
   function siteSendButton(target) {
     if (!target || !target.closest) return null;
@@ -901,6 +943,7 @@ const ZSProvider = (() => {
     getEditor,
     editorText,
     chatIsEmpty,
+    describeItems,
     isFreshChat,
     composerFrame,
     barAnchor,
