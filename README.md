@@ -170,28 +170,6 @@ restart the bridge.
   `use_skill` command used for RLScript's built-in skills
 - **Remember your project across sessions** persistent project memory saved inside your place
 
-## New in 1.6.0
-
-- **Interactive refactor approval:** `fix_script` now proposes instead of
-  writing on its own - every refactor appears in the new Refactor section of
-  the RLScript panel (per-script, per-rule, with exact line before/after
-  previews) and is written only when you click Apply. A whole-game Scan button
-  works the same way.
-- **After-AI notification:** whenever the AI finishes writing or editing
-  scripts, a "Refactors available" toast appears with an Apply Change /
-  Dismiss Change button for each suggested refactor - applying only what the
-  AI made, one refactor at a time (Apply all / Dismiss all in the header).
-- **Auto-approve toggle:** turn it on in the Refactor section and `fix_script`
-  applies + writes immediately again (Studio Ctrl+Z still works); per-call
-  override with `auto_approve` in the tool arguments.
-- **Atomic refactor groups:** structural rewrites (proper_loops, Instance.new
-  optimization, RNG modernization, auto-tweener, line organization) are one
-  group per script; line-local fixes (deprecated APIs, compound assignments,
-  redundant booleans, :IsA checks) are one group per line - selecting a group
-  can never leave half-applied, broken code.
-- **Undo last:** the Refactor section can restore the exact pre-apply sources
-  of your most recent apply batch (in addition to Studio's own Ctrl+Z).
-
 ## New in 1.5.2
 
 - **Product Rebrand:** the visible extension and bridge branding is now RLScript;

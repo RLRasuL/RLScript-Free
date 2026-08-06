@@ -3780,6 +3780,10 @@ return result`;
     let openMenuFn = null; // set by build(); lets the popup force the panel open via runtime message
     let bridgeOk = false, studioDown = false, placeDown = false, appDown = false, addonOk = false, studioProcUp = false;
     let wasConnected = false, bridgeBannerEl = null;
+    // Refactor review selection + toast, declared here (not below buildMenu)
+    // because buildMenu() runs during build() at init - TDZ-safe.
+    const refSel = new Set(); // checked group keys ("script|group") in the section list
+    let refToast = null;      // "Refactors available" notification toast
 
     function build() {
       root = document.createElement("div");
@@ -4318,7 +4322,6 @@ return result`;
     // found in what the AI made, and each entry has Apply / Dismiss buttons.
     // Applying from the toast changes ONLY that refactor in that script - the
     // same engine "apply" path the Refactor section's Apply selected uses.
-    const refSel = new Set(); // checked group keys ("script|group") in the section list
     function renderRefactorSection() {
       const listEl = menuEl && menuEl.querySelector("#zs-ref-list");
       if (listEl) {
@@ -4356,7 +4359,6 @@ return result`;
       renderRefactorToast();
     }
 
-    let refToast = null;
     function ensureRefactorToast() {
       if (refToast || !root) return refToast;
       refToast = document.createElement("div");
