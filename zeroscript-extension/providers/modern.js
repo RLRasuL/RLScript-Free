@@ -112,10 +112,18 @@ const ZSProvider = (() => {
             id: "copilot",
             displayName: "Copilot",
             editor:
-              'textarea[placeholder*="message" i],textarea[placeholder*="Ask" i],' +
+              '#userInput,textarea[placeholder*="message" i],textarea[placeholder*="Ask" i],' +
               '[contenteditable="true"][role="textbox"],[contenteditable="true"]',
+            // Copilot's message thread is marked with data-content attributes;
+            // the sidebar conversation history and welcome UI never carry them,
+            // so a fresh chat with a populated sidebar stays "empty" and the
+            // Start button appears (selector set cross-checked against the
+            // Void-Script project's working copilot provider).
             item:
-              '[data-testid*="message"],[data-testid*="conversation"],' +
+              '[data-content="user-message"],[data-content="ai-message"],' +
+              '[data-testid="user-message"],[data-testid="assistant-message"],' +
+              '[class*="user"][class*="message" i],[class*="ai"][class*="message" i],' +
+              '[class*="assistant"][class*="message" i],' +
               '[data-message-id],[role="article"],article',
             send:
               'button[aria-label*="Send" i],button[aria-label*="Submit" i],' +
@@ -420,6 +428,9 @@ const ZSProvider = (() => {
 
   function explicitRole(item) {
     if (!item) return null;
+    const dataContent = item.getAttribute("data-content");
+    if (dataContent === "user-message") return "user";
+    if (dataContent === "ai-message") return "assistant";
     const attrs = [
       item.getAttribute("data-role"),
       item.getAttribute("data-author"),

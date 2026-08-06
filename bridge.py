@@ -789,10 +789,14 @@ def _file_sha256(path):
     return h.hexdigest()
 
 
-def _apply_update_zip(zip_path, current_build):
-    """Apply a release ZIP over HERE, writing ONLY files that actually changed
-    (per the per-file sha256 manifest inside the zip's build.json), and always
-    preserving config.json. Returns (new_build, error)."""
+def _apply_update_zip(zip_path, current_build, current_version=""):
+    """Apply a release ZIP over HERE.
+
+    A version bump means a NEW RELEASE: every shipped file is overwritten so
+    stale or removed files can't linger. A same-version rebuild (hotfix, no
+    new release) only rewrites files whose per-file sha256 differs from the
+    zip's manifest. config.json is ALWAYS preserved either way.
+    Returns (new_build, error)."""
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
@@ -805,6 +809,8 @@ def _apply_update_zip(zip_path, current_build):
                 return "", "release has no build.json - refusing to apply blindly"
             if new_build == current_build:
                 return "", "already up to date"
+            new_version = str((meta or {}).get("version") or "")
+            full = bool(new_version) and new_version != str(current_version or "")
             manifest = (meta or {}).get("files") or {}
             applied = 0
             skipped = 0
@@ -819,16 +825,18 @@ def _apply_update_zip(zip_path, current_build):
                 dest = os.path.normpath(os.path.join(HERE, name.replace("/", os.sep)))
                 if dest != HERE and not dest.startswith(HERE + os.sep):
                     continue  # zip-slip guard
-                # Only rewrite files whose content differs from the local copy
-                # (hash manifest from the build that produced this zip).
-                want = manifest.get(name)
-                if want and os.path.isfile(dest):
-                    try:
-                        if _file_sha256(dest) == want:
-                            skipped += 1
-                            continue
-                    except Exception:
-                        pass
+                if not full:
+                    # Same-version rebuild: only rewrite files whose content
+                    # differs from the local copy (hash manifest from the
+                    # build that produced this zip).
+                    want = manifest.get(name)
+                    if want and os.path.isfile(dest):
+                        try:
+                            if _file_sha256(dest) == want:
+                                skipped += 1
+                                continue
+                        except Exception:
+                            pass
                 parent = os.path.dirname(dest)
                 if parent and not os.path.isdir(parent):
                     os.makedirs(parent, exist_ok=True)
@@ -839,7 +847,7 @@ def _apply_update_zip(zip_path, current_build):
                             break
                         out.write(chunk)
                 applied += 1
-            log(f"update diff: {applied} file(s) rewritten, {skipped} unchanged", "cy")
+            log(f"update {'full' if full else 'diff'}: {applied} file(s) written, {skipped} unchanged", "cy")
             return new_build, None
     except Exception as e:
         return "", f"apply failed: {e}"
@@ -872,7 +880,8 @@ def check_update_once():
                 _download(url, tmp)
             finally:
                 pass
-            new_build, err = _apply_update_zip(tmp, (local or {}).get("build") or "")
+            new_build, err = _apply_update_zip(
+                tmp, (local or {}).get("build") or "", (local or {}).get("version") or "")
             try:
                 os.remove(tmp)
             except Exception:
