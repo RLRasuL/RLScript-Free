@@ -225,7 +225,10 @@ function handleBridgeMessage(msg) {
   if (msg.type === "connected") {
     mcpAlive = !!msg.mcp_alive;
     if (Array.isArray(msg.tools)) toolsCache = msg.tools;
-    if (Array.isArray(msg.servers)) serversCache = msg.servers;
+    if (Array.isArray(msg.servers)) {
+      serversCache = msg.servers;
+      chrome.storage.local.set({ zsLastServers: msg.servers });
+    }
     broadcastStatus();
     return;
   }
@@ -233,9 +236,25 @@ function handleBridgeMessage(msg) {
     resolvePending(msg.id, { ok: true });
     return;
   }
+  if (msg.type === "update_result") {
+    resolvePending(msg.id, { ok: true, status: msg.status, message: msg.message });
+    return;
+  }
+  if (msg.type === "update_applied") {
+    // The bridge just replaced our files on disk (new build). Reload the
+    // extension so the updated code actually runs.
+    broadcastStatus();
+    setTimeout(() => {
+      try { chrome.runtime.reload(); } catch {}
+    }, 800);
+    return;
+  }
   if (msg.type === "tools") {
     if (Array.isArray(msg.tools)) toolsCache = msg.tools;
-    if (Array.isArray(msg.servers)) serversCache = msg.servers;
+    if (Array.isArray(msg.servers)) {
+      serversCache = msg.servers;
+      chrome.storage.local.set({ zsLastServers: msg.servers });
+    }
     mcpAlive = !!msg.mcp_alive;
     resolvePending(msg.id, { ok: true, tools: toolsCache });
     broadcastStatus();
@@ -511,6 +530,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case "remove_server": {
         const r = await send({ type: "remove_server", server_id: msg.server_id }, 15000);
+        sendResponse(r);
+        break;
+      }
+      case "check_update": {
+        const r = await send({ type: "check_update" }, 90000);
         sendResponse(r);
         break;
       }

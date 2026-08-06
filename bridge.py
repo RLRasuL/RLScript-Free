@@ -24,8 +24,11 @@ import os
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import urllib.request
+import zipfile
 
 try:
     # Sibling script (same folder as bridge.py, which Python puts on sys.path
@@ -736,6 +739,132 @@ def restart_self():
 
 
 # ══════════════════════════════════════════════════════════════════════════
+#  SELF-UPDATE  - fetch the latest GitHub release ZIP and apply it over HERE.
+#  The release ZIP carries build.json with a build id; we only apply when the
+#  remote build id differs from the installed one, so patch-level rebuilds of
+#  the same version still flow to users. config.json (the user's MCP server
+#  list) is ALWAYS preserved. Nothing personal is ever uploaded: we only GET
+#  the public releases API of the project's own repo.
+# ══════════════════════════════════════════════════════════════════════════
+UPDATE_REPO = "RLRasuL/RLScript-Free"
+UPDATE_API = f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest"
+BUILD_INFO_FILE = os.path.join(HERE, "build.json")
+UPDATE_CHECK_HOURS = 6
+_UPDATE_LOCK = threading.Lock()
+
+
+def _read_build_info():
+    try:
+        with open(BUILD_INFO_FILE, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def _http_get_json(url, timeout=25):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "RLScript-Free-updater",
+        "Accept": "application/vnd.github+json",
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+def _download(url, dest, timeout=120):
+    req = urllib.request.Request(url, headers={"User-Agent": "RLScript-Free-updater"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest, "wb") as fh:
+        while True:
+            chunk = resp.read(1 << 16)
+            if not chunk:
+                break
+            fh.write(chunk)
+
+
+def _apply_update_zip(zip_path, current_build):
+    """Extract a release ZIP over HERE, preserving config.json. Returns
+    (new_build, error)."""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+            try:
+                meta = json.loads(zf.read("build.json").decode("utf-8"))
+            except Exception:
+                meta = None
+            new_build = str((meta or {}).get("build") or "")
+            if not new_build:
+                return "", "release has no build.json - refusing to apply blindly"
+            if new_build == current_build:
+                return "", "already up to date"
+            applied = 0
+            for name in names:
+                if name.endswith("/"):
+                    continue
+                if name == "config.json":
+                    continue  # never touch the user's local MCP server config
+                base = os.path.basename(name)
+                if base == "build_zip.py" or name.startswith("Compressed/"):
+                    continue
+                dest = os.path.normpath(os.path.join(HERE, name.replace("/", os.sep)))
+                if dest != HERE and not dest.startswith(HERE + os.sep):
+                    continue  # zip-slip guard
+                parent = os.path.dirname(dest)
+                if parent and not os.path.isdir(parent):
+                    os.makedirs(parent, exist_ok=True)
+                with zf.open(name) as src, open(dest, "wb") as out:
+                    while True:
+                        chunk = src.read(1 << 16)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                applied += 1
+            return new_build, None
+    except Exception as e:
+        return "", f"apply failed: {e}"
+
+
+def check_update_once():
+    """One full check: latest release -> download the zip asset -> apply.
+    Returns (status, message, new_build) with status in
+    ("up_to_date", "applied", "failed"). Thread-safe."""
+    try:
+        with _UPDATE_LOCK:
+            rel = _http_get_json(UPDATE_API)
+            if not isinstance(rel, dict) or rel.get("draft") or rel.get("prerelease"):
+                return "failed", "no stable release info from GitHub", ""
+            assets = rel.get("assets") or []
+            local = _read_build_info() or {}
+            want = local.get("zip")
+            asset = next((a for a in assets if a.get("name") == want), None)
+            if asset is None:
+                asset = next((a for a in assets
+                              if a.get("name", "").endswith(".zip")
+                              and "RLScript-Free" in a.get("name", "")), None)
+            if asset is None:
+                return "failed", f"no zip asset in release {rel.get('tag_name')}", ""
+            url = asset.get("browser_download_url") or asset.get("url")
+            if not url:
+                return "failed", "release asset has no download url", ""
+            tmp = os.path.join(tempfile.gettempdir(), "rlscript-update.zip")
+            try:
+                _download(url, tmp)
+            finally:
+                pass
+            new_build, err = _apply_update_zip(tmp, (local or {}).get("build") or "")
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+            if err:
+                if "already up to date" in err:
+                    return "up_to_date", f"already up to date ({rel.get('tag_name')})", ""
+                return "failed", err, ""
+            log(f"self-update applied: {rel.get('tag_name')} (build {new_build})", "gr")
+            return "applied", f"updated to {rel.get('tag_name')} (build {new_build})", new_build
+    except Exception as e:
+        return "failed", f"update check failed: {e}", ""
+
+
+# ══════════════════════════════════════════════════════════════════════════
 #  HARDENED MCP CLIENT  (one per server in config.json)
 # ══════════════════════════════════════════════════════════════════════════
 class MCPClient:
@@ -1442,6 +1571,29 @@ async def handler(ws):
                     "servers": mgr.health(), "tools": mgr.list_tools(),
                 }))
 
+            elif mtype == "check_update":
+                async def _do_update_check():
+                    status, message, _nb = await asyncio.to_thread(check_update_once)
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "update_result", "id": rid,
+                            "status": status, "message": message,
+                        }))
+                    except Exception:
+                        pass
+                    if status == "applied":
+                        # Let the ack flush, tell every client to reload, then
+                        # replace this process so the new bridge.py runs.
+                        await asyncio.sleep(0.8)
+                        for c in list(clients):
+                            try:
+                                await c.send(json.dumps({"type": "update_applied"}))
+                            except Exception:
+                                pass
+                        await asyncio.sleep(0.4)
+                        restart_self()
+                asyncio.create_task(_do_update_check())
+
             else:
                 await ws.send(json.dumps({
                     "type": "error", "id": rid,
@@ -1791,6 +1943,31 @@ async def _supervised(name, coro_factory):
             await asyncio.sleep(5)
 
 
+async def update_watch():
+    """Periodically check GitHub for a newer build and self-apply it. First
+    check shortly after boot (so an update waiting on release drops in), then
+    every UPDATE_CHECK_HOURS. After applying, tell every extension client to
+    reload, then restart this process so the new bridge.py is the one running."""
+    await asyncio.sleep(45)
+    while True:
+        try:
+            status, message, _nb = await asyncio.to_thread(check_update_once)
+            if status == "applied":
+                for c in list(clients):
+                    try:
+                        await c.send(json.dumps({"type": "update_applied"}))
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.5)
+                restart_self()
+                return
+            elif status == "failed":
+                log(message, "rd")
+        except Exception as e:
+            log(f"update watch error: {e}", "rd")
+        await asyncio.sleep(UPDATE_CHECK_HOURS * 3600)
+
+
 async def main():
     print(f"\n{C['cy']}  RLScript Bridge v{BRIDGE_VERSION}{C['reset']}  {C['dim']}- Roblox Studio - ws://{HOST}:{PORT}{C['reset']}\n")
     log(f"===== BRIDGE START  v{BRIDGE_VERSION}  pid={os.getpid()}  log={LOG_PATH} =====", "cy")
@@ -2027,6 +2204,7 @@ async def main():
         asyncio.create_task(_boot_and_diagnose())
         asyncio.create_task(_early_studio_guidance())
         asyncio.create_task(_early_status_pushes())
+        asyncio.create_task(update_watch())
         await asyncio.Future()  # run forever
 
 

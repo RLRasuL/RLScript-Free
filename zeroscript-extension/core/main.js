@@ -3969,12 +3969,17 @@ return result`;
     // them to config.json and restarts to load them; this local list only drives
     // the menu UI and is kept in sync with the bridge's server health.
     let customMcpServers = [];
+    // Last-known server list from the bridge, persisted so the MCP servers
+    // section still shows EVERY server the bridge has configured even while
+    // the bridge is momentarily offline (health shown as unknown).
+    let lastKnownServers = [];
     try {
-      chrome.storage.local.get("zsCustomMcpServers", (r) => {
+      chrome.storage.local.get(["zsCustomMcpServers", "zsLastServers"], (r) => {
         if (r && Array.isArray(r.zsCustomMcpServers)) {
           customMcpServers = r.zsCustomMcpServers;
           if (!menuEl.hidden) buildMenu();
         }
+        if (r && Array.isArray(r.zsLastServers)) lastKnownServers = r.zsLastServers;
       });
     } catch {}
     function getCustomMcpServers() { return customMcpServers; }
@@ -3988,7 +3993,13 @@ return result`;
     // "disappears" from the menu while still running - and self-heals the local
     // cache the moment we see a server it didn't know about.
     function mergedMcpServers() {
-      const live = ((A.bridge && A.bridge.servers) || []).filter((sv) => sv.id !== "roblox");
+      let live = ((A.bridge && A.bridge.servers) || []).filter((sv) => sv.id !== "roblox");
+      // Bridge offline: fall back to the last-known list (every server the
+      // bridge has configured) so the section never looks empty mid-outage.
+      if (!live.length && lastKnownServers.length) {
+        live = lastKnownServers.filter((sv) => sv.id !== "roblox")
+          .map((sv) => ({ ...sv, alive: undefined, tools: undefined }));
+      }
       const byId = new Map(customMcpServers.map((s) => [s.id, s]));
       const merged = live.map((sv) => {
         const cached = byId.get(sv.id);
@@ -4046,6 +4057,9 @@ return result`;
     // ── The "more" menu (⋯) ─────────────────────────────────────────────────
     // One popover holding every secondary control: other AI sites, the custom
     // prompt, and support (Ko-fi + Robux). Opens above the bar.
+    function extVersion() {
+      try { return chrome.runtime.getManifest().version; } catch { return "?"; }
+    }
     function buildMenu() {
       const here = (P.displayName || "").toLowerCase();
       const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
@@ -4127,8 +4141,13 @@ return result`;
            <div class="zs-mcp-sep"></div>
            <input id="zs-mcp-name" class="zs-mcp-field" placeholder="Name, e.g. Blender" />
            <input id="zs-mcp-url" class="zs-mcp-field" placeholder="Start command, e.g. npx -y @some/mcp-server" />
-           <div class="zs-set-row"><button id="zs-mcp-add">Add server</button><span id="zs-mcp-status"></span></div>
-         </section>`;
+            <div class="zs-set-row"><button id="zs-mcp-add">Add server</button><span id="zs-mcp-status"></span></div>
+          </section>
+          <section class="zs-menu-sec">
+            <div class="zs-sec-label"><span>Updates</span></div>
+            <div class="zs-menu-note">Running <b>v${extVersion()}</b>. The extension and bridge update themselves automatically from the GitHub release (checked by the bridge every few hours and whenever you click below).</div>
+            <div class="zs-set-row"><button id="zs-update-check">Check for updates</button><span id="zs-update-status"></span></div>
+          </section>`;
       const open = (url) => { try { window.open(url, "_blank", "noopener"); } catch {} menuEl.hidden = true; };
       menuEl.querySelectorAll("button.zs-site-opt, .zs-tip-opt").forEach((b) =>
         b.addEventListener("click", () => open(b.dataset.u)));
@@ -4271,6 +4290,27 @@ return result`;
         saveCustomMcpServers();
         await waitForBridgeBack(id);
         buildMenu(); // rebuilds with the new server listed + spinner cleared
+      });
+
+      // ── Updates section: manual check (the bridge also self-checks) ──────
+      const updBtn = menuEl.querySelector("#zs-update-check");
+      const updStatus = menuEl.querySelector("#zs-update-status");
+      if (updBtn) updBtn.addEventListener("click", async () => {
+        updBtn.disabled = true;
+        updStatus.textContent = "Checking…";
+        try {
+          const r = await bg({ type: "check_update" }, 90000);
+          if (!r || !r.ok) {
+            updStatus.textContent = "Bridge offline - run start.bat first.";
+          } else {
+            updStatus.textContent = r.message || "Checked.";
+            if (r.status === "applied") toast("Update installed - the extension will reload.");
+            if (r.status === "up_to_date") toast("You are up to date.");
+          }
+        } finally {
+          updBtn.disabled = false;
+          setTimeout(() => { if (updStatus.textContent !== "Checking…") updStatus.textContent = ""; }, 5000);
+        }
       });
 
       // ── Refactor section: scan / apply selected / undo / auto-approve ────
@@ -4682,6 +4722,10 @@ return result`;
 
     function setStatus(s) {
       A.bridge = s;
+      if (Array.isArray(s.servers) && s.servers.length) {
+        lastKnownServers = s.servers;
+        try { chrome.storage.local.set({ zsLastServers: s.servers }); } catch {}
+      }
       if (!dot) return;
       const servers = s.servers || [];
       // RLScript status tracks ONLY the primary Roblox MCP server. Every other
