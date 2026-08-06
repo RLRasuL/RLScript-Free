@@ -425,6 +425,24 @@ button.zs-site-opt:hover .zs-site-go { opacity: 1; transform: translateX(0); }
   animation: zs-mcp-spin-rotate 0.7s linear infinite;
 }
 @keyframes zs-mcp-spin-rotate { to { transform: rotate(360deg); } }
+/* ── Updates section: full-width action button, accent family ─────────── */
+.zs-upd-row { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+#zs-update-check {
+  width: 100%; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  background: rgba(94, 158, 252, 0.16); color: #9ecbff;
+  border: 1px solid rgba(94, 158, 252, 0.4); border-radius: 8px;
+  padding: 8px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: background 0.13s ease, opacity 0.13s ease;
+}
+#zs-update-check:hover { background: rgba(94, 158, 252, 0.28); }
+#zs-update-check:disabled { opacity: 0.55; cursor: default; }
+#zs-update-check::before { content: "↻"; font-size: 13px; }
+#zs-update-status {
+  font-size: 11px; color: #8a8a92; font-weight: 500;
+  text-align: center; line-height: 1.35;
+}
+
 /* ── composer mode enforcement (force Expert / DeepThink etc.) ────────────── */
 .zs-hide-el { display: none !important; }
 
@@ -1081,3 +1099,6 @@ html.zs-light .zs-ref-toast-acts button:hover,
 html.zs-light .zs-ref-toast-item-acts button:hover { background: rgba(0, 0, 0, 0.05); }
 html.zs-light .zs-ref-toast-acts button:first-child,
 html.zs-light .zs-ref-toast-go { background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); color: #1d4ed8; }
+html.zs-light #zs-update-check { background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); color: #1d4ed8; }
+html.zs-light #zs-update-check:hover { background: rgba(59, 130, 246, 0.2); }
+html.zs-light #zs-update-status { color: #6b7280; }

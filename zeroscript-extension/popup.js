@@ -46,7 +46,7 @@ document.getElementById("restart").addEventListener("click", (e) => {
 });
 document.getElementById("settings").addEventListener("click", () => {
   // Opens the in-page RLScript panel on an already-open supported AI tab first,
-  // so opening it doesn't require a conversation to already be started there.
+  // then closes this popup, so Settings feels like the extension's own page.
   chrome.tabs.query({}, (tabs) => {
     const active = tabs.find((t) => t.active && t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
     const anySupported = active || tabs.find((t) => t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
@@ -54,8 +54,11 @@ document.getElementById("settings").addEventListener("click", () => {
       chrome.tabs.sendMessage(anySupported.id, { type: "zs-open-menu" });
       chrome.tabs.update(anySupported.id, { active: true });
     } else {
-      chrome.tabs.create({ url: DEFAULT_AI_URL });
+      // No supported AI tab open: the background opens one and triggers the
+      // panel once its content script is up (survives this popup closing).
+      chrome.runtime.sendMessage({ type: "zs-open-menu-tab", url: DEFAULT_AI_URL });
     }
+    window.close();
   });
 });
 

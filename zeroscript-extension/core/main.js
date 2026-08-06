@@ -4145,8 +4145,8 @@ return result`;
           </section>
           <section class="zs-menu-sec">
             <div class="zs-sec-label"><span>Updates</span></div>
-            <div class="zs-menu-note">Running <b>v${extVersion()}</b>. The extension and bridge update themselves automatically from the GitHub release (checked by the bridge every few hours and whenever you click below).</div>
-            <div class="zs-set-row"><button id="zs-update-check">Check for updates</button><span id="zs-update-status"></span></div>
+            <div class="zs-menu-note">Running <b>v${extVersion()}</b>. The extension checks GitHub itself (no bridge needed) and flags a new build with a badge + toast; the bridge additionally downloads and installs the update when you run it. You can also check right now:</div>
+            <div class="zs-upd-row"><button id="zs-update-check">Check for updates</button><span id="zs-update-status"></span></div>
           </section>`;
       const open = (url) => { try { window.open(url, "_blank", "noopener"); } catch {} menuEl.hidden = true; };
       menuEl.querySelectorAll("button.zs-site-opt, .zs-tip-opt").forEach((b) =>
@@ -4292,7 +4292,7 @@ return result`;
         buildMenu(); // rebuilds with the new server listed + spinner cleared
       });
 
-      // ── Updates section: manual check (the bridge also self-checks) ──────
+      // ── Updates section: manual check (bridge if up, extension alone else) ──
       const updBtn = menuEl.querySelector("#zs-update-check");
       const updStatus = menuEl.querySelector("#zs-update-status");
       if (updBtn) updBtn.addEventListener("click", async () => {
@@ -4301,11 +4301,15 @@ return result`;
         try {
           const r = await bg({ type: "check_update" }, 90000);
           if (!r || !r.ok) {
-            updStatus.textContent = "Bridge offline - run start.bat first.";
+            updStatus.textContent = (r && r.error) || "Bridge offline - run start.bat first.";
           } else {
             updStatus.textContent = r.message || "Checked.";
             if (r.status === "applied") toast("Update installed - the extension will reload.");
             if (r.status === "up_to_date") toast("You are up to date.");
+            if (r.status === "update_available") {
+              toast(`RLScript update available (build ${r.build}).`);
+              if (r.downloadUrl) bg({ type: "zs-download", url: r.downloadUrl });
+            }
           }
         } finally {
           updBtn.disabled = false;
@@ -5557,6 +5561,12 @@ return result`;
     }
     if (msg && msg.type === "zs-open-menu") {
       ui.openMenu(false); // from the popup's Settings button — opens at the top (Switch AI / custom prompt)
+    }
+    if (msg && msg.type === "zs-ext-update") {
+      // Extension-side update found (no bridge running): badge + toast.
+      try {
+        toast(`RLScript update available (build ${msg.build}).`);
+      } catch {}
     }
   });
 

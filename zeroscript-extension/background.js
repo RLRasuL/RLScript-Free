@@ -474,6 +474,105 @@ async function askAi(question, modelOverride) {
   }
 }
 
+// ── Extension-side update check (works with NO bridge running) ──────────
+// The release uploads a tiny build.json asset alongside the zip; the
+// extension reads it (and its own packaged build.json marker) to compare
+// build ids over the GitHub API alone. It cannot replace its own files, so
+// when a newer build exists it flags the badge, toasts every open chat, and
+// downloads the new zip; the bridge (when started) applies it for real.
+const EXT_UPDATE_ALARM = "zs-ext-update-check";
+const EXT_UPDATE_PERIOD_MIN = 360; // 6h
+const EXT_UPDATE_API = "https://api.github.com/repos/RLRasuL/RLScript-Free/releases/latest";
+const EXT_BUILD_MARKER = chrome.runtime.getURL("build.json");
+
+async function extFetchJson(url, timeoutMs = 20000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": "RLScript-Free" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function extInstalledBuild() {
+  try {
+    const r = await fetch(EXT_BUILD_MARKER, { cache: "no-store" });
+    if (!r.ok) return "";
+    const j = await r.json();
+    return String(j.build || "");
+  } catch {
+    return "";
+  }
+}
+
+// One full check: GitHub -> latest release -> its build.json asset -> compare
+// with the installed marker. Returns {ok, status, message, build, downloadUrl}
+async function extCheckUpdate() {
+  try {
+    const [rel, installed] = await Promise.all([extFetchJson(EXT_UPDATE_API), extInstalledBuild()]);
+    if (!rel || typeof rel !== "object" || rel.draft || rel.prerelease) {
+      return { ok: false, error: "no stable release info from GitHub" };
+    }
+    const assets = rel.assets || [];
+    const metaAsset = assets.find((a) => a.name === "build.json") ||
+      assets.find((a) => a.name.endsWith(".zip"));
+    if (!metaAsset) return { ok: false, error: "release has no build metadata" };
+    let remote = "";
+    if (metaAsset.name === "build.json") {
+      const j = await extFetchJson(metaAsset.browser_download_url || metaAsset.url);
+      remote = String((j && j.build) || "");
+    }
+    if (!remote) return { ok: false, error: "release has no build id" };
+    const zipAsset = assets.find((a) => /\.zip$/i.test(a.name) && /RLScript-Free/i.test(a.name));
+    if (!installed) {
+      // Installed marker missing (pre-self-update build): still surface the
+      // newest build, but stay silent when we cannot compare anything.
+      return { ok: true, status: "unknown", message: "installed build unknown", build: remote, downloadUrl: zipAsset ? zipAsset.browser_download_url : "" };
+    }
+    if (remote === installed) {
+      return { ok: true, status: "up_to_date", message: `You are up to date (build ${remote})`, build: remote };
+    }
+    return { ok: true, status: "update_available", message: `Update available: build ${remote} (you have ${installed})`, build: remote, downloadUrl: zipAsset ? zipAsset.browser_download_url : "" };
+  } catch (e) {
+    return { ok: false, error: "update check failed: " + String(e && e.message || e).slice(0, 200) };
+  }
+}
+
+function extNotifyTabs(state) {
+  for (const pat of PROVIDER_URLS) {
+    chrome.tabs.query({ url: pat }, (tabs) => {
+      for (const t of tabs) {
+        try { chrome.tabs.sendMessage(t.id, { type: "zs-ext-update", ...state }); } catch {}
+      }
+    });
+  }
+}
+
+async function extUpdateCron() {
+  const r = await extCheckUpdate();
+  if (!r.ok) return;
+  if (r.status === "update_available") {
+    const prev = (await chrome.storage.local.get(["zsExtUpdateSeen"]).catch(() => ({}))).zsExtUpdateSeen || "";
+    if (prev !== r.build) {
+      chrome.storage.local.set({ zsExtUpdateSeen: r.build });
+      chrome.action.setBadgeText({ text: "!" });
+      chrome.action.setBadgeBackgroundColor({ color: "#f87171" });
+      if (r.downloadUrl) {
+        try { chrome.downloads.download({ url: r.downloadUrl, conflictAction: "overwrite" }); } catch {}
+      }
+      extNotifyTabs({ status: "available", build: r.build, downloadUrl: r.downloadUrl });
+    }
+  } else if (r.status === "up_to_date") {
+    chrome.action.setBadgeText({ text: "" });
+  }
+}
+
+chrome.alarms.create(EXT_UPDATE_ALARM, { periodInMinutes: EXT_UPDATE_PERIOD_MIN });
+chrome.alarms.onAlarm.addListener((a) => { if (a.name === EXT_UPDATE_ALARM) extUpdateCron(); });
+
 // ── messages from content.js / popup.js ─────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
@@ -534,8 +633,48 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case "check_update": {
-        const r = await send({ type: "check_update" }, 90000);
+        // Bridge running -> it checks AND applies (downloads + restarts). If the
+        // bridge is offline, fall back to the extension-side check so the button
+        // still answers without start.bat.
+        const br = await send({ type: "check_update" }, 90000);
+        if (br && br.ok) { sendResponse(br); break; }
+        const ext = await extCheckUpdate();
+        sendResponse(ext);
+        break;
+      }
+      case "ext_check_update": {
+        const r = await extCheckUpdate();
         sendResponse(r);
+        break;
+      }
+      case "zs-download": {
+        try {
+          const id = await chrome.downloads.download({ url: String(msg.url || ""), conflictAction: "overwrite" });
+          sendResponse({ ok: true, downloadId: id });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e && e.message || e) });
+        }
+        break;
+      }
+      case "zs-open-menu-tab": {
+        // Popup Settings with no supported tab open: create one, then open the
+        // in-page panel once its content script answers (survives popup close).
+        chrome.tabs.create({ url: String(msg.url || "") }, (tab) => {
+          if (!tab || tab.id == null) { sendResponse({ ok: false, error: "could not open tab" }); return; }
+          let tries = 0;
+          const timer = setInterval(() => {
+            tries += 1;
+            chrome.tabs.sendMessage(tab.id, { type: "zs-open-menu" }, () => {
+              if (!chrome.runtime.lastError) {
+                clearInterval(timer);
+                sendResponse({ ok: true });
+              } else if (tries >= 30) { // ~15s
+                clearInterval(timer);
+                sendResponse({ ok: false, error: "page did not load in time" });
+              }
+            });
+          }, 500);
+        });
         break;
       }
       case "reconnect":
@@ -551,7 +690,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 // Wake/keepalive hooks.
-chrome.runtime.onStartup.addListener(connect);
-chrome.runtime.onInstalled.addListener(connect);
+chrome.runtime.onStartup.addListener(() => { connect(); extUpdateCron(); });
+chrome.runtime.onInstalled.addListener(() => { connect(); extUpdateCron(); });
 
 connect();

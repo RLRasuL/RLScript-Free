@@ -19,6 +19,7 @@
 #     Nothing ever hangs the agentic loop silently.
 # ──────────────────────────────────────────────────────────────────────────
 import asyncio
+import hashlib
 import json
 import os
 import queue
@@ -780,9 +781,18 @@ def _download(url, dest, timeout=120):
             fh.write(chunk)
 
 
+def _file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _apply_update_zip(zip_path, current_build):
-    """Extract a release ZIP over HERE, preserving config.json. Returns
-    (new_build, error)."""
+    """Apply a release ZIP over HERE, writing ONLY files that actually changed
+    (per the per-file sha256 manifest inside the zip's build.json), and always
+    preserving config.json. Returns (new_build, error)."""
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
@@ -795,7 +805,9 @@ def _apply_update_zip(zip_path, current_build):
                 return "", "release has no build.json - refusing to apply blindly"
             if new_build == current_build:
                 return "", "already up to date"
+            manifest = (meta or {}).get("files") or {}
             applied = 0
+            skipped = 0
             for name in names:
                 if name.endswith("/"):
                     continue
@@ -807,6 +819,16 @@ def _apply_update_zip(zip_path, current_build):
                 dest = os.path.normpath(os.path.join(HERE, name.replace("/", os.sep)))
                 if dest != HERE and not dest.startswith(HERE + os.sep):
                     continue  # zip-slip guard
+                # Only rewrite files whose content differs from the local copy
+                # (hash manifest from the build that produced this zip).
+                want = manifest.get(name)
+                if want and os.path.isfile(dest):
+                    try:
+                        if _file_sha256(dest) == want:
+                            skipped += 1
+                            continue
+                    except Exception:
+                        pass
                 parent = os.path.dirname(dest)
                 if parent and not os.path.isdir(parent):
                     os.makedirs(parent, exist_ok=True)
@@ -817,6 +839,7 @@ def _apply_update_zip(zip_path, current_build):
                             break
                         out.write(chunk)
                 applied += 1
+            log(f"update diff: {applied} file(s) rewritten, {skipped} unchanged", "cy")
             return new_build, None
     except Exception as e:
         return "", f"apply failed: {e}"

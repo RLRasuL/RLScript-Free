@@ -3,8 +3,11 @@
   "name": "RLScript Free × Roblox Studio Agent",
   "version": "1.5.2",
   "description": "Turn DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT or Copilot into a Roblox Studio agent that drives Studio through a local bridge.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "alarms", "downloads"],
   "host_permissions": [
+    "https://api.github.com/*",
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*",
     "https://chat.deepseek.com/*",
     "https://deepseek.com/*",
     "https://gemini.google.com/*",

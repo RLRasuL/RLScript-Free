@@ -2,6 +2,27 @@
 
 ## [1.5.2-hotfix] - 2026-08-06
 
+### Popup: model picker
+- The AI-to-AI popup section now uses one **Choose a model** button instead of
+  a provider dropdown + free-text model box. With your API key entered (or
+  already saved) it lists the models that provider's API actually offers;
+  provider chips inside the dropdown switch between OpenAI / Claude / Gemini /
+  DeepSeek / Qwen / Kimi. Keys with an obvious prefix (AIza\*, sk-ant-\*) pick
+  their provider automatically. If the API is unreachable it falls back to a
+  saved model list with a clear note.
+- The popup's **Settings** button now closes the popup and opens the in-page
+  RLScript menu on the active supported AI tab (or opens one first), instead
+  of leaving both open.
+
+### Refactor panel: ISSUES FOUND list
+- The menu's Refactor section header now reads **ISSUES FOUND: N · X awaiting
+  approval - tick to enable, untick to skip, then Apply selected**. Scanned
+  refactors and the AI's `fix_script` proposals land in an always-visible
+  list with per-item checkboxes, so you can pick and choose before anything
+  is written (Auto-approve off) - no waiting for the notification toast.
+- Scan / Apply selected / Undo last restyled to match the panel (blue accent
+  primary actions, ghost undo).
+
 ### Deterministic script fixer (scan_script / fix_script)
 - `scan_script` scans a scope and reports matches for 9 mechanical rule sets:
   deprecated APIs (wait/spawn/remove/connect/KeyDown-era members, JumpPower,
@@ -40,6 +61,30 @@
   explicit error.
 - Removed the Ko-fi button from the in-page menu (Support section now shows
   "Support in Roblox" game-passes only).
+
+### MCP servers: every server the bridge has
+- The menu's MCP servers section now lists **every** MCP server the bridge
+  runs (e.g. GitHub, Blender) alongside Roblox, with live health dots. When
+  the bridge is offline it falls back to the last-known server list so the
+  section always shows your servers instead of collapsing to Roblox only.
+
+### Self-update: bridge AND extension
+- The bridge now checks the GitHub release automatically ~45s after launch
+  and every 6 hours (plus on demand via **Check for updates** in the menu).
+  A newer build is downloaded, applied, and the bridge restarts itself; the
+  extension is told to reload so both sides land on the same build.
+- The update applies **only the files that actually changed**: the release
+  zip carries a per-file sha256 manifest (build.json), and the bridge skips
+  every file whose local copy already matches - config.json (your MCP server
+  list) is always preserved and never rewritten.
+- The **extension** checks for updates on its own too, with no bridge
+  running: a background alarm hits the GitHub API every 6 hours and on
+  browser start, compares build ids, and when a newer build exists it flags
+  a red "!" badge, toasts open chat pages, and downloads the new zip. The
+  bridge still does the actual in-place install whenever you run it.
+- Releases are built with build_zip.py, which stamps the git build id into
+  build.json (repo + version + per-file hashes) so patch-level rebuilds of
+  the same 1.5.2 version still flow to users.
 
 ## [1.5.2] - 2026-08-05
 

@@ -8,8 +8,9 @@ docs/
 # Zip files
 *.zip
 
-# Generated per-build (bridge self-update build id)
+# Generated per-build (bridge self-update build id + extension build marker)
 build.json
+zeroscript-extension/build.json
 
 # Local dev / diagnostic tools
 probe.py
