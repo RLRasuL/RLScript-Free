@@ -4327,7 +4327,7 @@ return result`;
       if (listEl) {
         const items = refactorState.items;
         if (!items.length) {
-          listEl.innerHTML = `<div class="zs-ref-list-head">Found refactors <b>0</b></div><div class="zs-menu-note">No refactors found yet. Run a scan above, or ask the AI to work on your scripts - its findings appear here for you to approve (tick the ones you want, then Apply selected).</div>`;
+          listEl.innerHTML = `<div class="zs-ref-list-head">ISSUES FOUND: <b>0</b></div><div class="zs-menu-note">No issues found yet. Run a scan above, or ask the AI to work on your scripts - findings appear here as a list with a tick per refactor; tick the ones you want and press Apply selected. You never have to wait for a notification - the list is always here.</div>`;
         } else {
           const pending = items.filter((i) => i.status === "pending").length;
           const groups = new Map();
@@ -4338,7 +4338,7 @@ return result`;
             g.lines.push(it);
             if (it.status === "applied") g.status = "applied";
           }
-          let html = `<div class="zs-ref-list-head">Found refactors <b>${items.length}</b> <span class="zs-ref-pending">${pending} awaiting approval</span></div>`;
+          let html = `<div class="zs-ref-list-head">ISSUES FOUND: <b>${items.length}</b> <span class="zs-ref-pending">${pending} awaiting approval - tick to enable, untick to skip, then Apply selected</span></div>`;
           let curScript = null;
           for (const [gk, g] of groups) {
             if (g.script !== curScript) { curScript = g.script; html += `<div class="zs-ref-script">${escHtml(curScript)}</div>`; }

@@ -396,8 +396,13 @@ const ZSProvider = (() => {
       if (SITE.id === "copilot") {
         let n = el.parentElement;
         while (n) {
-          if (n.getAttribute && n.getAttribute("role") === "navigation" ||
-              n.tagName === "ASIDE") return false;
+          // Copilot's sidebar is <nav aria-label="Sidebar"> WITHOUT an explicit
+          // role attribute, so the role check alone never matched and the
+          // history list (data-testid*="conversation" items WITH text) made
+          // every chat look non-empty -> the Start button never appeared.
+          if (n.tagName === "NAV" || n.tagName === "ASIDE" ||
+              (n.getAttribute && (n.getAttribute("role") === "navigation" ||
+                n.getAttribute("aria-label") === "Sidebar"))) return false;
           n = n.parentElement;
         }
       }
