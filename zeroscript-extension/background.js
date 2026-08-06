@@ -13,7 +13,7 @@ const URL = `ws://127.0.0.1:${PORT}`;
 // Chat sites where an RLScript provider content script runs. Status pushes go
 // to every tab matching these. Add the new provider's URL pattern here (and in
 // manifest.json content_scripts + host_permissions) when integrating another AI.
-const PROVIDER_URLS = ["https://chat.deepseek.com/*", "https://gemini.google.com/*", "https://www.kimi.com/*", "https://kimi.com/*", "https://chat.z.ai/*", "https://chat.qwen.ai/*", "https://arena.ai/*", "https://www.meta.ai/*", "https://meta.ai/*", "https://agent.minimax.io/*", "https://grok.com/*", "https://claude.ai/*", "https://chatgpt.com/*", "https://copilot.microsoft.com/*"];
+const PROVIDER_URLS = ["https://chat.deepseek.com/*", "https://gemini.google.com/*", "https://www.kimi.com/*", "https://kimi.com/*", "https://chat.z.ai/*", "https://chat.qwen.ai/*", "https://arena.ai/*", "https://www.meta.ai/*", "https://meta.ai/*", "https://agent.minimax.io/*", "https://grok.com/*", "https://claude.ai/*", "https://chatgpt.com/*", "https://copilot.microsoft.com/*", "https://copilot.cloud.microsoft.com/*"];
 
 const RECONNECT_MIN = 1000;
 const RECONNECT_MAX = 5000;
@@ -656,25 +656,24 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         break;
       }
-      case "zs-open-menu-tab": {
-        // Popup Settings with no supported tab open: create one, then open the
-        // in-page panel once its content script answers (survives popup close).
-        chrome.tabs.create({ url: String(msg.url || "") }, (tab) => {
-          if (!tab || tab.id == null) { sendResponse({ ok: false, error: "could not open tab" }); return; }
-          let tries = 0;
-          const timer = setInterval(() => {
-            tries += 1;
-            chrome.tabs.sendMessage(tab.id, { type: "zs-open-menu" }, () => {
-              if (!chrome.runtime.lastError) {
-                clearInterval(timer);
-                sendResponse({ ok: true });
-              } else if (tries >= 30) { // ~15s
-                clearInterval(timer);
-                sendResponse({ ok: false, error: "page did not load in time" });
-              }
-            });
-          }, 500);
-        });
+      case "zs-open-menu": {
+        // Popup Settings: open the in-page RLScript panel on the given tab
+        // (or create one from msg.url). A tab opened BEFORE the last extension
+        // update still runs the OLD content script, which silently ignores
+        // zs-open-menu - that's exactly why Settings used to close the popup
+        // and then do nothing on stale tabs. So probe for a real answer and
+        // reload the tab once before giving up.
+        const run = async () => {
+          let tabId = msg.tabId;
+          if (tabId == null) {
+            const created = await chrome.tabs.create({ url: String(msg.url || "") });
+            if (!created || created.id == null) return { ok: false, error: "could not open tab" };
+            tabId = created.id;
+          }
+          try { await chrome.tabs.update(tabId, { active: true }); } catch {}
+          return extOpenMenuInTab(tabId);
+        };
+        sendResponse(await run());
         break;
       }
       case "reconnect":
@@ -692,5 +691,35 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // Wake/keepalive hooks.
 chrome.runtime.onStartup.addListener(() => { connect(); extUpdateCron(); });
 chrome.runtime.onInstalled.addListener(() => { connect(); extUpdateCron(); });
+
+const zsSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function extOpenMenuInTab(tabId) {
+  // Probe the tab's content script. "ok" = it answered zs-open-menu (this
+  // build); "stale" = a receiver exists but did not answer (pre-update build);
+  // "missing" = not injected yet (page still loading).
+  const probe = async () => {
+    try {
+      const resp = await chrome.tabs.sendMessage(tabId, { type: "zs-open-menu" });
+      return resp && resp.ok ? "ok" : "stale";
+    } catch (e) {
+      return "missing";
+    }
+  };
+  for (let round = 0; round < 3; round++) {
+    for (let i = 0; i < 40; i++) { // ~20s of polling per round
+      const s = await probe();
+      if (s === "ok") return { ok: true };
+      if (s === "stale") break; // old build -> reload the tab once
+      await zsSleep(500);
+    }
+    try {
+      await chrome.tabs.reload(tabId);
+    } catch (e) {
+      return { ok: false, error: String(e && e.message || e) };
+    }
+  }
+  return { ok: false, error: "tab did not answer after reloading" };
+}
 
 connect();

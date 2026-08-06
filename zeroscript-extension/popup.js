@@ -3,6 +3,7 @@ const SUPPORTED_HOSTS = [
   "chat.deepseek.com", "deepseek.com", "gemini.google.com", "www.kimi.com", "kimi.com",
   "chat.z.ai", "chat.qwen.ai", "arena.ai", "www.meta.ai", "meta.ai",
   "agent.minimax.io", "grok.com", "claude.ai", "chatgpt.com", "copilot.microsoft.com",
+  "copilot.cloud.microsoft.com",
 ];
 const DEFAULT_AI_URL = "https://chat.deepseek.com/";
 
@@ -45,19 +46,18 @@ document.getElementById("restart").addEventListener("click", (e) => {
   });
 });
 document.getElementById("settings").addEventListener("click", () => {
-  // Opens the in-page RLScript panel on an already-open supported AI tab first,
-  // then closes this popup, so Settings feels like the extension's own page.
+  // Settings lives inside the in-page RLScript panel, so: open the panel on an
+  // already-open supported AI tab (preferring the active one), else let the
+  // background open a supported tab. The background activates the tab and, if
+  // it is running a pre-update content script that cannot answer, reloads it
+  // so the current build's panel shows. This popup closes immediately; the
+  // background keeps working on its own.
   chrome.tabs.query({}, (tabs) => {
     const active = tabs.find((t) => t.active && t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
     const anySupported = active || tabs.find((t) => t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
-    if (anySupported) {
-      chrome.tabs.sendMessage(anySupported.id, { type: "zs-open-menu" });
-      chrome.tabs.update(anySupported.id, { active: true });
-    } else {
-      // No supported AI tab open: the background opens one and triggers the
-      // panel once its content script is up (survives this popup closing).
-      chrome.runtime.sendMessage({ type: "zs-open-menu-tab", url: DEFAULT_AI_URL });
-    }
+    chrome.runtime.sendMessage(anySupported
+      ? { type: "zs-open-menu", tabId: anySupported.id }
+      : { type: "zs-open-menu", url: DEFAULT_AI_URL });
     window.close();
   });
 });

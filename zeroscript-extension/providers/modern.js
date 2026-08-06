@@ -107,7 +107,7 @@ const ZSProvider = (() => {
               '[class*="markdown"],[class*="prose"]',
             fresh: /^\/$/,
           }
-      : host === "copilot.microsoft.com"
+      : host === "copilot.microsoft.com" || host === "copilot.cloud.microsoft.com"
         ? {
             id: "copilot",
             displayName: "Copilot",

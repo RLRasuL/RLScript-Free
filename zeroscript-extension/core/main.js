@@ -4549,7 +4549,10 @@ return result`;
       // agent here at all (user request). Keep it for the states where the
       // bridge actually matters: a fresh/empty chat (the Start affordance is
       // showing) or a conversation with a live/starting session.
-      if (!A.started && !A.starting && !P.chatIsEmpty()) { hideSetup(); return; }
+      if (!A.started && !A.starting && !P.chatIsEmpty()) {
+        diag("gate.hide", { items: P.allItems().length, editor: !!P.getEditor(), fresh: P.isFreshChat() });
+        hideSetup(); return;
+      }
       showSetup();
     }
 
@@ -5555,12 +5558,13 @@ return result`;
   //  WIRING
   // ════════════════════════════════════════════════════════════════════════
 
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg && msg.type === "zs-status") {
       ui.setStatus({ connected: msg.connected, mcpAlive: msg.mcpAlive, studio: msg.studio, studioApp: msg.studioApp, studioProc: msg.studioProc, tools: msg.tools, servers: msg.servers });
     }
     if (msg && msg.type === "zs-open-menu") {
       ui.openMenu(false); // from the popup's Settings button — opens at the top (Switch AI / custom prompt)
+      sendResponse({ ok: true }); // lets the background distinguish this build from a stale tab
     }
     if (msg && msg.type === "zs-ext-update") {
       // Extension-side update found (no bridge running): badge + toast.

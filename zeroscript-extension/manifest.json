@@ -23,6 +23,7 @@
     "https://claude.ai/*",
     "https://chatgpt.com/*",
     "https://copilot.microsoft.com/*",
+    "https://copilot.cloud.microsoft.com/*",
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
     "https://generativelanguage.googleapis.com/*",
@@ -130,7 +131,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://copilot.microsoft.com/*"],
+      "matches": ["https://copilot.microsoft.com/*", "https://copilot.cloud.microsoft.com/*"],
       "js": ["core/config.js", "core/parser.js", "providers/modern.js", "core/main.js"],
       "css": ["overlay.css"],
       "run_at": "document_idle"

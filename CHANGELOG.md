@@ -105,6 +105,20 @@
 - The editor selector now also matches Copilot's `#userInput` textarea
   directly.
 
+### Settings now opens the panel even on stale tabs
+- The popup's Settings button routes through the background, which probes the
+  tab for a real `{ok:true}` answer instead of fire-and-forget. A tab opened
+  before the last extension update runs an OLD content script that silently
+  ignores the open request - the background detects that, reloads the tab
+  once, and opens the panel on the fresh build. Settings always opens instead
+  of just closing the popup.
+- Same auto-reload puts the current Copilot selector set in front of old tabs,
+  which is the usual reason "▶ Start Roblox agent" still didn't appear after
+  an update.
+- Copilot's Business/Enterprise endpoint (copilot.cloud.microsoft.com) is now
+  covered too: content script, host permission, provider URLs, popup
+  supported list and the site config all include it.
+
 ## [1.5.2] - 2026-08-05
 
 ### Branding and release metadata
