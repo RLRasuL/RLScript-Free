@@ -528,9 +528,9 @@ async function extCheckUpdate() {
     if (!remote) return { ok: false, error: "release has no build id" };
     const zipAsset = assets.find((a) => /\.zip$/i.test(a.name) && /RLScript-Free/i.test(a.name));
     if (!installed) {
-      // Installed marker missing (pre-self-update build): still surface the
-      // newest build, but stay silent when we cannot compare anything.
-      return { ok: true, status: "unknown", message: "installed build unknown", build: remote, downloadUrl: zipAsset ? zipAsset.browser_download_url : "" };
+      // Installed marker missing (install predates self-updates): an update
+      // is effectively available - flag it instead of staying silent.
+      return { ok: true, status: "update_available", message: `Update available: build ${remote} (your copy predates self-updates)`, build: remote, downloadUrl: zipAsset ? zipAsset.browser_download_url : "" };
     }
     if (remote === installed) {
       return { ok: true, status: "up_to_date", message: `You are up to date (build ${remote})`, build: remote };
