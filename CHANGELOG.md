@@ -85,6 +85,25 @@
 - Releases are built with build_zip.py, which stamps the git build id into
   build.json (repo + version + per-file hashes) so patch-level rebuilds of
   the same 1.5.2 version still flow to users.
+- Update policy is now version-aware: a **new release (version number
+  changed)** overwrites every shipped file so stale or removed files can't
+  linger, while a **same-version rebuild (no new release)** replaces only
+  the files whose content actually changed (per-file sha256 diff). Either
+  way config.json (your MCP server list) is always preserved.
+
+### Copilot: Start button fixed (selector set ported from Void-Script)
+- Copilot messages are now detected the way Void-Script does it: the thread
+  is matched by its `data-content="user-message"` / `data-content="ai-message"`
+  markers (plus exact `user-message` / `assistant-message` testids and
+  user/ai/assistant class fallbacks). The sidebar conversation history and
+  the welcome UI never carry those markers, so a fresh chat with a populated
+  sidebar finally counts as empty and **▶ Start Roblox agent** appears.
+- The old wildcard item selectors (`[data-testid*="message"]`,
+  `[data-testid*="conversation"]`) that could match the sidebar and welcome
+  tiles are gone from the Copilot config; the nav/sidebar exclusion stays
+  as a second line of defense.
+- The editor selector now also matches Copilot's `#userInput` textarea
+  directly.
 
 ## [1.5.2] - 2026-08-05
 
