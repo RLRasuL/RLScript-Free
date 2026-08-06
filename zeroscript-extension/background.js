@@ -310,6 +310,77 @@ const ASK_AI_DEFAULTS = {
   kimi: { url: "https://api.moonshot.cn/v1/chat/completions", model: "moonshot-v1-8k" },
 };
 
+// Chat models to list in the popup's model picker (the button replaces the old
+// free-text model box): live from each provider's /models endpoint, falling
+// back to these known-good ids when the API is unreachable or rejects the key.
+const ASK_AI_FALLBACK_MODELS = {
+  openai: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "gpt-4-turbo", "o3-mini", "o3"],
+  anthropic: ["claude-sonnet-4-5", "claude-opus-4-5", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"],
+  gemini: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
+  qwen: ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-long"],
+  kimi: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-latest"],
+};
+
+// Fetch the model list for a provider with the user's key. Only chat-capable
+// models are kept (no embeddings/tts/vision-only tool models).
+async function listAiModels(provider, key) {
+  const def = ASK_AI_DEFAULTS[provider];
+  if (!def) return { ok: false, error: "unknown provider: " + provider };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  const chatOnly = (id) => !/embedding|tts|whisper|dall|moderation|rerank|audio|image/i.test(id);
+  try {
+    let res;
+    if (provider === "gemini") {
+      res = await fetch("https://generativelanguage.googleapis.com/v1beta/models?key=" + encodeURIComponent(key), {
+        signal: controller.signal,
+      });
+    } else if (provider === "anthropic") {
+      res = await fetch("https://api.anthropic.com/v1/models", {
+        headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
+        signal: controller.signal,
+      });
+    } else {
+      const url = provider === "qwen"
+        ? "https://dashscope.aliyuncs.com/compatible-mode/v1/models"
+        : provider === "openai"
+          ? "https://api.openai.com/v1/models"
+          : provider === "deepseek"
+            ? "https://api.deepseek.com/models"
+            : "https://api.moonshot.cn/v1/models";
+      res = await fetch(url, {
+        headers: { authorization: "Bearer " + key },
+        signal: controller.signal,
+      });
+    }
+    const text = await res.text();
+    if (!res.ok) return { ok: false, error: provider + " API error " + res.status + ": " + text.slice(0, 200) };
+    let data;
+    try { data = JSON.parse(text); } catch { return { ok: false, error: provider + " API returned non-JSON" }; }
+    let models = [];
+    if (provider === "gemini") {
+      for (const m of data && data.models || []) {
+        const id = String(m.name || "").replace(/^models\//, "");
+        if (id) models.push(id);
+      }
+    } else {
+      for (const m of data && data.data || []) {
+        const id = String(m.id || "");
+        if (id) models.push(id);
+      }
+    }
+    models = models.filter(chatOnly).sort();
+    if (!models.length) return { ok: false, error: provider + " API returned no models" };
+    return { ok: true, models: models.slice(0, 80) };
+  } catch (e) {
+    const aborted = (e && e.name === "AbortError");
+    return { ok: false, error: aborted ? provider + " API timed out." : provider + " API request failed: " + String(e && e.message || e).slice(0, 160) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function askAi(question, modelOverride) {
   const questionText = String(question || "").trim();
   if (!questionText) return { ok: false, error: "question is required." };
@@ -394,6 +465,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       case "ask_ai": {
         const r = await askAi(msg.question, msg.model);
+        sendResponse(r);
+        break;
+      }
+      case "list_ai_models": {
+        const r = await listAiModels(
+          String(msg.provider || "").trim().toLowerCase(),
+          String(msg.key || "").trim()
+        );
         sendResponse(r);
         break;
       }

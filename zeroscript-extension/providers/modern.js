@@ -129,7 +129,7 @@ const ZSProvider = (() => {
             reply:
               '[data-testid*="message-content"],[data-testid*="response"],' +
               '[class*="markdown"],[class*="prose"],[role="article"]',
-            fresh: /^\/(?:|new|chat|conversation)?$/,
+            fresh: /^\/(?:|new|chat|conversation)\/?$/,
           }
       : {
           id: "claude",
