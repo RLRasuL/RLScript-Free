@@ -280,7 +280,7 @@ const ZS = (() => {
     }),
     Object.freeze({
       name: "scan_script",
-      description: "Read-only deprecation/style scanner: list deprecated API usage and fixable style issues across the scripts under a scope, as script → line → rule → snippet matches. Never writes.",
+      description: "Read-only deprecation/style scanner: list deprecated API usage and fixable style issues across the scripts under a scope, as script → line → rule → snippet matches. Never writes; results also appear in the RLScript Refactor panel so the user can apply them without asking again.",
       inputSchema: Object.freeze({
         type: "object",
         properties: Object.freeze({
@@ -298,7 +298,7 @@ const ZS = (() => {
     }),
     Object.freeze({
       name: "fix_script",
-      description: "Deterministic, token-free fixer for ONE script: applies the requested refactor rules (deprecated APIs, compound assignments, redundant booleans, :IsA checks, proper loops, Instance.new() optimization, RNG modernization, auto-tweening, line organization) and auto-applies the result in Studio with native undo.",
+      description: "Deterministic, token-free fixer for ONE script: computes the requested refactor rules (deprecated APIs, compound assignments, redundant booleans, :IsA checks, proper loops, Instance.new() optimization, RNG modernization, auto-tweening, line organization). By default it ONLY PROPOSES - nothing is written until the user clicks Apply in the RLScript Refactor panel. It applies + writes into Studio (native undo) only when the user enabled Auto-approve fixes in the panel, or when auto_approve is true.",
       inputSchema: Object.freeze({
         type: "object",
         properties: Object.freeze({
@@ -309,6 +309,10 @@ const ZS = (() => {
           rules: Object.freeze({
             type: "array",
             description: "Optional subset of rule ids to apply. Omit for all. Valid ids: deprecated_api, compound_assignments, redundant_booleans, isa_implementor, proper_loops, instance_new_optimizer, rng_modernizer, auto_tweener, lines_organization."
+          }),
+          auto_approve: Object.freeze({
+            type: "boolean",
+            description: "Optional. Override the Auto-approve setting for this call: true applies + writes immediately; false proposes only. Omit to follow the panel setting (default: propose only)."
           }),
           syntax_shield: Object.freeze({
             type: "boolean",
@@ -446,7 +450,8 @@ ${allowAiSkills ? " - VISUAL PLAYTESTS: when the task involves gameplay, UI, cam
 ━━━ THE DETERMINISTIC FIXER (scan_script / fix_script) ━━━
 When the user wants mechanical cleanup of existing scripts - outdated/deprecated APIs (wait()/spawn()/remove()/KeyDown/JumpPower/...), compound-assignment conversion (x = x + 1 → x += 1), redundant booleans (if x == true), string ClassName comparisons (".ClassName == \"X\"" → ":IsA(\"X\")"), while-loop conversion to for-loops, Instance.new("X", parent) optimization, Math.random() → Random.new() modernization, wait-based tween loops → TweenService, or line organization (consistent indentation/blank lines) - do NOT hand-edit these with multi_edit. Run \`scan_script\` to see what matches exist, then \`fix_script\` to apply them deterministically:
 - The fixer is pattern-based and exact - it rewrites only known-safe shapes and never guesses, so the result is far more reliable than a model hand-rewrite.
-- \`fix_script\` writes the fixed source into Studio itself with native undo, so no manual multi_edit diffing is needed after it. Trust its write unless the user asks otherwise.
+- \`fix_script\` PROPOSES by default: it computes the refactors and hands them to the RLScript Refactor panel, where the user reviews them and clicks Apply (per-refactor or Apply all). Nothing is written until the user approves - do NOT claim the changes were applied in your reply. It writes into Studio with native undo only when the user has Auto-approve fixes ON (or passes auto_approve: true) - then trust its write unless the user asks otherwise.
+- After a fix_script proposal, END YOUR TURN: summarize the refactors in one short line, tell the user to review + click Apply in the Refactor panel, and do NOT re-run fix_script or multi_edit the same script until they have approved.
 - It refuses any rewrite that would unbalance the script (the Syntax Shield) and reports those lines instead - NEVER apply such a rewrite manually afterwards without re-checking; tell the user a line was skipped.
 - These tools are still ONE-command-per-reply like everything else: run scan_script, read the result, then run fix_script in the next reply.
 - The tools you manually created (multi_edit etc.) remain available for the structural/judgment work the fixer cannot do: new systems, game logic, naming changes.
@@ -570,7 +575,8 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
       "Run it BEFORE fix_script to preview, or pass a \"rules\" subset to scan only what the user asked. It never writes - safe to run anytime.",
     fix_script:
       "Deterministic refactor of ONE script. script_path is REQUIRED (dot-notation). Defaults to all rules; pass \"rules\" to apply a subset. " +
-      "The result is auto-applied in Studio inside an undoable ChangeHistoryService transaction - after a successful write, the fixed source IS live, do not re-apply with multi_edit. " +
+      "By default it ONLY PROPOSES: the refactors appear in the RLScript Refactor panel for the user to review, and are written ONLY after they click Apply (or when the user enabled Auto-approve fixes, or auto_approve:true is passed). " +
+      "A proposal write happens inside an undoable ChangeHistoryService transaction - after a successful auto-approved write, the fixed source IS live, do not re-apply with multi_edit. " +
       "A rule whose rewrite would unbalance the script is skipped and listed in the output (Syntax Shield). It is EXACT and pattern-based: it rewrites only known-safe shapes and never guesses.",
     ask_ai:
       "Offloads ONE self-contained question to the model the user configured in the RLScript popup (their own API key - never ask for the key here, and never echo it). " +

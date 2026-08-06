@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.6.0] - 2026-08-06
+
+### Interactive refactor approval (fix_script proposals + panel + notification)
+- `fix_script` no longer writes on its own: it PROPOSES by default. Every
+  proposed refactor lands in the new Refactor section of the RLScript panel,
+  and nothing is written until the user reviews it and clicks Apply.
+- **Refactor panel:** Scan button (engine scan of any scope, defaults to the
+  whole game), a grouped review list (script → rule → exact line changes with
+  before/after preview), Apply selected, and Undo last. Selection is per
+  "refactor": structural rules (proper_loops, Instance.new optimization,
+  RNG modernization, auto-tweener, line organization) form one atomic group
+  per script, line-local rules (deprecated APIs, compound assignments,
+  redundant booleans, :IsA checks) are one group per line - approving a group
+  can never leave half-applied, broken code.
+- **Auto-approve toggle:** when on, fix_script applies + writes immediately
+  (Studio-native undo, Ctrl+Z) exactly like 1.5.2; per-call override with
+  `auto_approve: true/false` in the tool arguments.
+- **After-AI notification:** when the AI finishes writing/editing scripts, the
+  extension scans exactly what it touched and shows a "Refactors available"
+  toast with an Apply Change / Dismiss Change button per refactor (Apply all /
+  Dismiss all in the header). Applying changes ONLY that refactor in that
+  script. The toast is dismissed forever by closing it or when nothing is
+  pending; the items also remain in the panel for later.
+- Applying/undoing uses the same deterministic engine with the Syntax Shield
+  re-checked per spliced candidate; the GUI Undo last button restores the
+  exact pre-apply sources through ScriptEditorService waypoints.
+- Engine gains an "apply" mode (selected groups only) and a "write" mode (raw
+  source restore) alongside scan/fix/propose; scan/fix results are shared with
+  the panel's review list automatically.
+
 ## [1.5.2-hotfix] - 2026-08-06
 
 ### Deterministic script fixer (scan_script / fix_script)

@@ -743,6 +743,51 @@ ol.flex-col-reverse > div.w-full:not(.mx-auto) > .zs-chip {
 }
 .zs-toast.show { opacity: 1; transform: translateY(0); }
 
+/* ── refactor review list + "Refactors available" toast ───── */
+.zs-ref-script { font-size: 10.5px; font-weight: 600; color: #8b8b94; text-transform: uppercase; letter-spacing: 0.04em; margin: 8px 0 3px; }
+.zs-ref-script:first-child { margin-top: 0; }
+.zs-ref-group { border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; margin: 4px 0; padding: 5px 6px; background: rgba(255, 255, 255, 0.02); }
+.zs-ref-group.zs-ref-applied { opacity: 0.55; }
+.zs-ref-prev { font-size: 10px; font-family: ui-monospace, Consolas, monospace; color: #8f8f98; line-height: 1.45; padding: 1px 0 0 22px; }
+.zs-ref-del { color: #f08a8a; text-decoration: line-through; opacity: 0.85; }
+.zs-ref-add { color: #8fd6a2; }
+.zs-ref-more { font-size: 10px; color: #6f6f78; padding-left: 22px; }
+.zs-ref-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.zs-ref-row input { flex: 1; min-width: 0; }
+.zs-ref-row button { flex-shrink: 0; }
+.zs-ref-toast {
+  position: fixed; right: 18px; top: 140px; width: 340px; max-height: 60vh; overflow-y: auto;
+  border-radius: 12px; background: rgba(30, 30, 36, 0.97); color: #e8e8ec;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5); z-index: 2147483601; font-size: 12px;
+}
+.zs-ref-toast-head {
+  position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px; background: rgba(30, 30, 36, 0.98); border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px 12px 0 0;
+}
+.zs-ref-toast-title b { color: #7cc7ff; font-weight: 700; }
+.zs-ref-toast-acts { display: flex; gap: 6px; align-items: center; }
+.zs-ref-toast-acts button, .zs-ref-toast-item-acts button {
+  padding: 4px 9px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px;
+  background: transparent; color: #c9c9d2; cursor: pointer; font-size: 11px; font-weight: 600;
+}
+.zs-ref-toast-acts button:hover, .zs-ref-toast-item-acts button:hover { background: rgba(255, 255, 255, 0.07); }
+.zs-ref-toast-acts button:first-child, .zs-ref-toast-go { background: rgba(94, 158, 252, 0.18); border-color: rgba(94, 158, 252, 0.4); color: #9ecbff; }
+.zs-ref-toast-close { border: none !important; color: #8b8b94 !important; }
+.zs-ref-toast-item {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.zs-ref-toast-item:last-child { border-bottom: none; }
+.zs-ref-toast-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.zs-ref-rule { font-weight: 700; color: #d8d8de; }
+.zs-ref-cnt { color: #7cc7ff; font-size: 10px; }
+.zs-ref-msg { color: #a3a3ac; line-height: 1.4; }
+.zs-ref-toast-item-acts { display: flex; gap: 6px; flex-shrink: 0; }
+.zs-ref-toast-item-acts button { font-size: 11px; }
+.zs-ref-toast-x:hover { color: #f08a8a; border-color: rgba(240, 138, 138, 0.4); }
+
 /* ── banner (errors / limits) ──────────────────────────────── */
 .zs-banner {
   position: fixed; right: 18px; top: 18px; width: 320px;
@@ -996,3 +1041,17 @@ html.zs-light .zs-tip-sub,
 html.zs-light .zs-rbx-cur,
 html.zs-light .zs-tip-sep { color: #6b7280; }
 html.zs-light .zs-tip-rbx { color: #374151; }
+html.zs-light .zs-ref-script { color: #6b7280; }
+html.zs-light .zs-ref-group { background: rgba(0, 0, 0, 0.03); border-color: rgba(0, 0, 0, 0.08); }
+html.zs-light .zs-ref-prev { color: #6b7280; }
+html.zs-light .zs-ref-more { color: #9ca3af; }
+html.zs-light .zs-ref-toast { background: rgba(255, 255, 255, 0.98); color: #1f2430; border-color: rgba(0, 0, 0, 0.12); }
+html.zs-light .zs-ref-toast-head { background: rgba(255, 255, 255, 0.98); border-bottom-color: rgba(0, 0, 0, 0.08); }
+html.zs-light .zs-ref-rule { color: #1f2430; }
+html.zs-light .zs-ref-msg { color: #4b5563; }
+html.zs-light .zs-ref-toast-acts button,
+html.zs-light .zs-ref-toast-item-acts button { color: #374151; border-color: rgba(0, 0, 0, 0.14); }
+html.zs-light .zs-ref-toast-acts button:hover,
+html.zs-light .zs-ref-toast-item-acts button:hover { background: rgba(0, 0, 0, 0.05); }
+html.zs-light .zs-ref-toast-acts button:first-child,
+html.zs-light .zs-ref-toast-go { background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); color: #1d4ed8; }

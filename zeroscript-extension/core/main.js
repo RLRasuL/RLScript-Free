@@ -193,6 +193,149 @@
   // it off). fix_script consults this when the AI does not pass an explicit
   // syntax_shield argument.
   let syntaxShieldDefault = true;
+  // Auto-approve refactors: when ON, fix_script applies + writes immediately
+  // (Studio-native undo); when OFF (default), fix_script only PROPOSES and the
+  // user must review and click Apply in the panel. Persisted by the Refactor
+  // section of the menu (chrome.storage.local "zsAutoApproveFixes").
+  let autoApproveFixes = false;
+  // ── Interactive refactor state ──────────────────────────────────────────
+  // Shared by runTool (AI paths: scan_script / fix_script) and the ui IIFE
+  // (Refactor section + the after-AI notification toast). items are per-change
+  // records; the UI groups them by script|group (a group is the atomic unit -
+  // structural rules like proper_loops/instance_new/rng are one group per
+  // script so selecting them can never leave half-applied, broken code).
+  const refactorState = {
+    items: [],        // { key, script, rule, group, line, before, after, span, message, rules, source, status }
+    undoStack: [],    // [{ label, at, snapshots: [{ script, before }] }]
+    aiTouched: [],    // scripts the AI wrote/fixed during the current loop run
+  };
+  const escHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const FIX_ALL_RULES = () => (ZS.FIX_RULES || []).map((r) => r.id);
+
+  // Direct engine call used by the Refactor panel + after-turn notifications.
+  // Bypasses runTool's AI gates - these are USER-driven actions, not AI tools.
+  async function runEngineDirect(code) {
+    const r = await bg({ type: "call_tool", name: "execute_luau", arguments: { datamodel_type: "Edit", code }, timeout: 20000 });
+    if (!r) return { ok: false, error: "no response from the extension worker" };
+    if (!r.ok) return { ok: false, error: r.error || "engine call failed" };
+    const txt = String(r.text || "").replace(/^Output of 'execute_luau':\s*/, "").trim();
+    try { return { ok: true, result: JSON.parse(txt) }; }
+    catch { return { ok: false, error: txt.slice(0, 300) || "engine returned non-JSON output" }; }
+  }
+
+  const refactorItemKey = (script, group, line, before) =>
+    `${script}|${group}|${line}|${String(before || "").length}`;
+
+  // Merge an engine result (scan matches or fix/propose/apply changes) into the
+  // review list. Dedupes by (script, group, line, before-length); returns how
+  // many new items were added.
+  function refactorIngest(result, opts = {}) {
+    if (!result || result.available === false) return 0;
+    const source = opts.source || "ai-scan";
+    const rules = opts.rules || FIX_ALL_RULES();
+    const list = [];
+    if (Array.isArray(result.matches)) {
+      for (const m of result.matches) if (m && m.script) list.push({ ...m, script: m.script });
+    } else if (Array.isArray(result.changes) && typeof result.script === "string") {
+      for (const c of result.changes) list.push({ ...c, script: result.script });
+    }
+    let added = 0;
+    const seen = new Set(refactorState.items.map((i) => i.key));
+    for (const m of list) {
+      if (!m || typeof m.rule !== "string" || typeof m.group !== "string") continue;
+      const key = refactorItemKey(m.script, m.group, m.line, m.before);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refactorState.items.push({
+        key, script: m.script, rule: m.rule, group: m.group, line: m.line,
+        before: m.before || "", after: m.after || "", span: m.span || 1,
+        message: m.message || "refactor", rules, source, status: "pending",
+      });
+      added++;
+    }
+    if (added) diag("refactor.ingest", { source, added, total: refactorState.items.length });
+    return added;
+  }
+
+  // Apply a set of pending items: one engine "apply" call per script with the
+  // selected group ids. On success the pre-apply sources are snapshotted for
+  // the GUI "Undo last" button (Studio Ctrl+Z also still works).
+  async function refactorApply(items) {
+    if (!items || !items.length) return { ok: false, error: "nothing selected" };
+    const byScript = new Map();
+    for (const it of items) {
+      if (it.status === "applied") continue;
+      const arr = byScript.get(it.script) || [];
+      arr.push(it);
+      byScript.set(it.script, arr);
+    }
+    if (!byScript.size) return { ok: false, error: "all selected items are already applied" };
+    const snapshots = [];
+    let appliedCount = 0;
+    let lastError = "";
+    for (const [script, its] of byScript) {
+      const groupIds = [...new Set(its.map((i) => i.group))];
+      const rules = its[0].rules || FIX_ALL_RULES();
+      const code = buildScriptEngineCode("apply", { scriptPath: script, rules, syntaxShield: true, selected: groupIds, includeSource: true });
+      const r = await runEngineDirect(code);
+      if (!r.ok || !r.result || r.result.available === false) {
+        lastError = (r.result && r.result.error) || r.error || "apply failed";
+        continue;
+      }
+      const res = r.result;
+      if (res.changed > 0 && typeof res.currentSource === "string") {
+        snapshots.push({ script, before: res.currentSource });
+        appliedCount += res.changed;
+      } else if (res.changed > 0) {
+        appliedCount += res.changed;
+        lastError = lastError || "no undo snapshot (script too large)";
+      }
+      for (const it of its) it.status = "applied";
+      diag("refactor.apply", { script, applied: res.changed, skipped: (res.skipped || []).length });
+    }
+    if (snapshots.length) {
+      refactorState.undoStack.push({ label: `${snapshots.length} script(s)`, at: Date.now(), snapshots });
+    }
+    ui.renderRefactor();
+    return { ok: true, applied: appliedCount, snapshots: snapshots.length, error: lastError };
+  }
+
+  // Write back the pre-apply sources of the last batch (engine "write" mode,
+  // same ScriptEditorService waypoint so Studio undo history stays consistent).
+  async function refactorUndoLast() {
+    const batch = refactorState.undoStack.pop();
+    if (!batch) return { ok: false, error: "nothing to undo" };
+    let restored = 0;
+    for (const snap of batch.snapshots) {
+      if (!snap.before) continue;
+      const code = buildScriptEngineCode("write", { scriptPath: snap.script, writeSource: snap.before });
+      const r = await runEngineDirect(code);
+      if (r.ok && r.result && r.result.wrote) restored++;
+    }
+    for (const it of refactorState.items) it.status = "pending";
+    diag("refactor.undo", { restored, scripts: batch.snapshots.length });
+    ui.renderRefactor();
+    return { ok: true, restored, scripts: batch.snapshots.length };
+  }
+
+  // After the AI finishes a turn that wrote/edited scripts: scan the scripts it
+  // touched (unless a fix_script proposal/scan already covered them) and show
+  // the "Refactors available" notification with Apply/Dismiss buttons.
+  async function refactorAfterTurn(touched) {
+    if (!touched || !touched.length) return;
+    refactorState.aiTouched = [];
+    diag("refactor.afterTurn", { scripts: touched.length });
+    let total = 0;
+    for (const script of touched) {
+      if (refactorState.items.some((i) => i.script === script)) continue; // already reviewed
+      const code = buildScriptEngineCode("scan", { scope: script, rules: FIX_ALL_RULES() });
+      const r = await runEngineDirect(code);
+      if (r.ok && r.result && r.result.available && Array.isArray(r.result.matches) && r.result.matches.length) {
+        total += refactorIngest(r.result, { source: "ai-scan", rules: FIX_ALL_RULES() });
+      }
+    }
+    if (total) ui.showRefactorToast();
+  }
 
   async function waitFor(pred, timeout) {
     const t0 = Date.now();
@@ -1192,17 +1335,23 @@ return {
   // UpdateAPI, FormatLines...) - the fixer never rewrites code that only a
   // language model could parse, it only rewrites known-safe shapes.
   function buildScriptEngineCode(mode, opts) {
-    const isFix = mode === "fix";
     const scope = JSON.stringify(String((opts && opts.scope) || "game").trim().slice(0, 200) || "game");
     const targetPath = JSON.stringify(String((opts && opts.scriptPath) || "").trim().slice(0, 300));
     const rules = "{" + (opts && Array.isArray(opts.rules) ? opts.rules : []).slice(0, 20).map((r) => JSON.stringify(String(r).trim())).join(", ") + "}";
     const shield = !(opts && opts.syntaxShield === false);
-    return `-- RLScript deterministic fixer engine (scan/fix)
-local MODE = ${isFix ? '"fix"' : '"scan"'}
+    const selected = "{" + (opts && Array.isArray(opts.selected) ? opts.selected : []).slice(0, 300)
+      .map((id) => "[" + JSON.stringify(String(id).trim()) + "]=true").join(",") + "}";
+    const includeSource = !!(opts && opts.includeSource);
+    const writeSource = JSON.stringify(String((opts && opts.writeSource) || ""));
+    return `-- RLScript deterministic fixer engine (scan/fix/propose/apply/write)
+local MODE = ${JSON.stringify(mode)}
 local REQUESTED_RULES = ${rules}
 local SYNTAX_SHIELD = ${shield ? "true" : "false"}
 local SCOPE = ${scope}
 local TARGET_PATH = ${targetPath}
+local SELECTED = ${selected}
+local INCLUDE_SOURCE = ${includeSource ? "true" : "false"}
+local WRITE_SOURCE = ${writeSource}
 
 local function resolvePath(path)
   local current = game
@@ -1229,6 +1378,25 @@ local function collectScripts(scope)
     return a:GetFullName() < b:GetFullName()
   end)
   return scripts
+end
+
+-- Refactor grouping: a group is the atomic unit of user approval. Structural
+-- rules rewrite several lines at once (proper_loops: header+init+increment;
+-- instance_new: declaration+inserted .Parent; rng_modernizer: replacements +
+-- hoisted local; auto_tweener: whole loop replaced by one tween) - approving
+-- ONE of their lines without the others would leave broken code, so they form
+-- a single group per script. Line-local rules (deprecated_api,
+-- compound_assignments, redundant_booleans, isa_implementor) are one group per
+-- line so the user can approve them individually.
+local ATOMIC_RULES = { proper_loops = true, instance_new_optimizer = true, rng_modernizer = true, lines_organization = true, auto_tweener = true }
+local function hashStr(s)
+  local h = 5381
+  for i = 1, #s do h = (h * 33 + string.byte(s, i)) % 2147483647 end
+  return h
+end
+local function groupFor(ruleId, ch)
+  if ATOMIC_RULES[ruleId] then return ruleId .. ":0:0" end
+  return ruleId .. ":" .. ch.line .. ":" .. hashStr(ch.before or "")
 end
 
 local function splitLines(s)
@@ -1709,6 +1877,12 @@ RULES["instance_new_optimizer"] = function(lines, masks)
         before = lines[i],
         after = ind .. "local " .. name .. " = Instance.new(\\\"" .. class .. "\\\")",
       })
+      table.insert(changes, {
+        line = i + 1,
+        message = "Instance.new(X, parent) split into .Parent assignment (inserted line)",
+        before = "",
+        after = ind .. name .. ".Parent = " .. parent .. tail,
+      })
       lines[i] = ind .. "local " .. name .. " = Instance.new(\\\"" .. class .. "\\\")"
       table.insert(lines, i + 1, ind .. name .. ".Parent = " .. parent .. tail)
       masks = preMask(lines)
@@ -1752,7 +1926,7 @@ RULES["auto_tweener"] = function(lines, masks)
         else
           local duration = string.format("%.6f", 1 / tonumber(factor))
           local replacement = ind .. "game:GetService(\\\"TweenService\\\"):Create(" .. obj .. ", TweenInfo.new(" .. duration .. "), {" .. prop .. " = " .. target .. "}):Play()"
-          table.insert(changes, { line = i, message = "Lerp wait-loop -> TweenService tween", before = joinLines({ lines[i], body.masked and lines[body.index] or "" }), after = replacement })
+          table.insert(changes, { line = i, message = "Lerp wait-loop -> TweenService tween", before = joinLines({ lines[i], body.masked and lines[body.index] or "" }), after = replacement, span = endAt - i + 1 })
           local removed = {}
           for n = i, endAt do table.insert(removed, lines[n]) end
           lines[i] = replacement
@@ -1825,6 +1999,7 @@ local function runRulesOnSource(source)
         if okR then
           for _, ch in ipairs(ruleChanges) do
             ch.rule = ruleId
+            ch.group = groupFor(ruleId, ch)
             table.insert(matches, ch)
           end
         end
@@ -1859,6 +2034,7 @@ local function runRulesOnSource(source)
             current = candidate
             for _, ch in ipairs(ruleChanges) do
               ch.rule = ruleId
+              ch.group = groupFor(ruleId, ch)
               table.insert(scriptChanges, ch)
             end
           end
@@ -1869,9 +2045,110 @@ local function runRulesOnSource(source)
   return scriptChanges, scriptSkips, current
 end
 
+-- ── Apply-mode rule driver (user-selected groups only) ────────────────────
+-- Re-runs the SAME sequential pipeline as fix mode so line numbers stay
+-- consistent with each rule's own pass, but only applies the rule changes
+-- whose group is in SELECTED. Atomic rules apply wholesale when their group is
+-- picked; line-local rules splice only the selected records (descending line
+-- order, each verified against its recorded "before"). The Syntax Shield runs
+-- on every spliced candidate exactly like in fix mode.
+local function applySelectedRule(ruleId, rule, current, selected)
+  local working = splitLines(current)
+  local okR, nextLines, ruleChanges = pcall(rule, working, preMask(working))
+  if not okR then
+    return current, nil, { { rule = ruleId, line = 0, message = "rule failed internally; skipped (" .. tostring(nextLines) .. ")" } }
+  end
+  for _, ch in ipairs(ruleChanges) do
+    ch.rule = ruleId
+    ch.group = groupFor(ruleId, ch)
+  end
+  local skips = {}
+  if #ruleChanges == 0 then return current, nil, skips end
+  local candidate
+  local applied = {}
+  if ATOMIC_RULES[ruleId] then
+    if not selected[ruleChanges[1].group] then return current, nil, skips end
+    candidate = joinLines(nextLines)
+    applied = ruleChanges
+  else
+    local wanted = {}
+    for _, ch in ipairs(ruleChanges) do
+      if selected[ch.group] then table.insert(wanted, ch) end
+    end
+    if #wanted == 0 then return current, nil, skips end
+    if #wanted == #ruleChanges then
+      candidate = joinLines(nextLines)
+      applied = ruleChanges
+    else
+      table.sort(wanted, function(a, b) return a.line > b.line end)
+      local base = splitLines(current)
+      local mismatched = false
+      for _, ch in ipairs(wanted) do
+        if (base[ch.line] or "") == ch.before then
+          base[ch.line] = ch.after
+        else
+          mismatched = true
+          table.insert(skips, { rule = ruleId, line = ch.line, message = "line changed since the scan; skipped" })
+        end
+      end
+      if not mismatched then
+        candidate = joinLines(base)
+        applied = wanted
+      end
+    end
+  end
+  if not candidate or candidate == current then return current, nil, skips end
+  local shieldErr = nil
+  if SYNTAX_SHIELD then
+    local originalBalance = balanceErrors(current)
+    if originalBalance == nil then shieldErr = balanceErrors(candidate) end
+  end
+  if shieldErr then
+    for _, ch in ipairs(applied) do
+      table.insert(skips, { rule = ruleId, line = ch.line, message = "syntax shield: skipped - the rewrite would unbalance the script (" .. shieldErr .. ")" })
+    end
+    return current, nil, skips
+  end
+  return candidate, applied, skips
+end
+
+local function runRulesSelected(source, selected)
+  local scriptChanges = {}
+  local scriptSkips = {}
+  local current = source
+  for _, ruleId in ipairs(REQUESTED_RULES) do
+    local rule = RULES[ruleId]
+    if rule then
+      local next, applied, skips = applySelectedRule(ruleId, rule, current, selected)
+      for _, s in ipairs(skips) do table.insert(scriptSkips, s) end
+      if applied then
+        for _, ch in ipairs(applied) do table.insert(scriptChanges, ch) end
+        current = next
+      end
+    end
+  end
+  return scriptChanges, scriptSkips, current
+end
+
 -- ── Main ─────────────────────────────────────────────────────────────────
 local result
-if MODE == "fix" then
+if MODE == "write" then
+  local scriptObject = resolvePath(TARGET_PATH)
+  if not scriptObject then
+    result = { available = false, error = "Script not found: " .. TARGET_PATH }
+  elseif not scriptObject:IsA("LuaSourceContainer") then
+    result = { available = false, error = "Not a script: " .. TARGET_PATH }
+  else
+    local writeOk, writeErr = pcall(function()
+      local cH = game:GetService("ChangeHistoryService")
+      local se = game:GetService("ScriptEditorService")
+      cH:SetWaypoint("RLScript Fixer")
+      se:UpdateSourceAsync(scriptObject, function() return WRITE_SOURCE end)
+      cH:SetWaypoint("RLScript Fixer")
+    end)
+    result = { available = true, mode = "write", script = scriptObject:GetFullName(), wrote = writeOk, writeError = writeOk and nil or tostring(writeErr) }
+  end
+elseif MODE == "fix" or MODE == "propose" or MODE == "apply" then
   local scriptObject = resolvePath(TARGET_PATH)
   if not scriptObject then
     result = { available = false, error = "Script not found: " .. TARGET_PATH }
@@ -1882,10 +2159,15 @@ if MODE == "fix" then
     if not sourceOk or type(source) ~= "string" then
       result = { available = false, error = "Could not read the Source of " .. TARGET_PATH }
     else
-      local changes, skips, fixed = runRulesOnSource(source)
+      local changes, skips, fixed
+      if MODE == "apply" then
+        changes, skips, fixed = runRulesSelected(source, SELECTED)
+      else
+        changes, skips, fixed = runRulesOnSource(source)
+      end
       result = {
         available = true,
-        mode = "fix",
+        mode = MODE,
         script = scriptObject:GetFullName(),
         changed = #changes,
         changes = changes,
@@ -1893,14 +2175,12 @@ if MODE == "fix" then
         wrote = false,
         same = fixed == source,
       }
-      if fixed ~= source then
+      if MODE == "fix" and fixed ~= source then
         local writeOk, writeErr = pcall(function()
           local cH = game:GetService("ChangeHistoryService")
           local se = game:GetService("ScriptEditorService")
           cH:SetWaypoint("RLScript Fixer")
-          se:UpdateSourceAsync(scriptObject, function(currentSource)
-            return fixed
-          end)
+          se:UpdateSourceAsync(scriptObject, function() return fixed end)
           cH:SetWaypoint("RLScript Fixer")
         end)
         result.wrote = writeOk
@@ -1909,6 +2189,10 @@ if MODE == "fix" then
           if #source <= 50000 then result.currentSource = source end
           if #fixed <= 50000 then result.source = fixed end
         end
+      end
+      if INCLUDE_SOURCE then
+        if #source <= 150000 then result.currentSource = source end
+        if #fixed <= 150000 then result.source = fixed end
       end
     end
   end
@@ -2041,10 +2325,11 @@ return result`;
       if (/^ERROR\b/i.test(nested)) return `ERROR in script_analysis: ${nested}`;
       return nested.replace(/^Output of 'execute_luau':/, "Output of 'script_analysis':");
     }
-    // Deterministic fixer tools: scan_script (read-only report) and fix_script
-    // (apply rules + auto-write in Studio with native undo). Both run the same
-    // Luau engine; fix_script falls back to multi_edit when the engine cannot
-    // write through ScriptEditorService itself.
+    // Deterministic fixer tools: scan_script (read-only report), fix_script
+    // (PROPOSES by default - the user approves in the panel; applies + writes
+    // directly only when Auto-approve is enabled). Both run the same Luau
+    // engine; the auto-approve path falls back to multi_edit when the engine
+    // cannot write through ScriptEditorService itself.
     if (name === "scan_script" || name === "fix_script") {
       const hasExecute = A.toolList.some((tool) => bareToolName(tool.name) === "execute_luau");
       if (!hasExecute) return `ERROR: ${name} requires Roblox's execute_luau command, which is not available right now.`;
@@ -2060,7 +2345,11 @@ return result`;
         if (!scriptPath) {
           return "ERROR in fix_script: script_path is required (dot-notation, e.g. game.ServerScriptService.MyScript).";
         }
-        code = buildScriptEngineCode("fix", { scriptPath, rules, syntaxShield: args.syntax_shield === undefined ? syntaxShieldDefault : args.syntax_shield !== false });
+        // Default: PROPOSE only (the user reviews + clicks Apply in the panel).
+        // Auto-approve (Refactor setting) or an explicit auto_approve:true
+        // param applies + writes immediately instead.
+        const mode = autoApproveFixes || args.auto_approve === true ? "fix" : "propose";
+        code = buildScriptEngineCode(mode, { scriptPath, rules, syntaxShield: args.syntax_shield === undefined ? syntaxShieldDefault : args.syntax_shield !== false });
         label = "fix_script";
       }
       const nested = await runTool({
@@ -2069,17 +2358,37 @@ return result`;
       });
       if (/^ERROR\b/i.test(nested)) return `ERROR in ${name}: ${nested}`;
       const raw = nested.replace(/^Output of 'execute_luau':\s*/, "").trim();
-      if (name === "fix_script") {
-        let parsed = null;
-        try { parsed = JSON.parse(raw); } catch {}
+      let parsed = null;
+      try { parsed = JSON.parse(raw); } catch {}
+      if (name === "scan_script") {
+        // Feed the AI's read-only scan into the panel's review list so the user
+        // can apply any of the found refactors without asking the AI again.
+        if (parsed && parsed.available) refactorIngest(parsed, { source: "ai-scan", rules });
+        return `Output of 'scan_script':\n${raw}`;
+      }
+      const scriptPath = String(args.script_path || "").trim().slice(0, 300);
+      if (parsed && parsed.available && parsed.mode === "propose") {
+        // Proposal mode: NOTHING was written. Stash for the panel; the user
+        // must review and click Apply there. Tell the model to end its turn.
+        refactorIngest(parsed, { source: "proposal", rules });
+        refactorState.aiTouched.push(parsed.script || scriptPath);
+        const head = parsed.changed > 0
+          ? `${parsed.changed} refactor(s) proposed for ${parsed.script} - nothing was written.`
+          : `No refactors found for ${parsed.script}.`;
+        return `Output of 'fix_script':\n${head}\n${raw}\n\n(NOTE: proposal mode - the refactors are ready in the RLScript Refactor panel and the user must review + click Apply before anything is written. End your turn now: summarize the refactors in one short line and tell the user to approve them there. Do NOT re-run fix_script.)`;
+      }
+      if (parsed && parsed.available && parsed.mode === "fix") {
+        // Auto-approve path: applied + written into Studio (native undo).
+        refactorIngest(parsed, { source: "applied-batch", rules });
+        refactorState.aiTouched.push(parsed.script || scriptPath);
         // Engine could not write through ScriptEditorService: fall back to
         // multi_edit with the exact current source as old_string.
-        if (parsed && parsed.available && parsed.wrote === false && typeof parsed.source === "string" && typeof parsed.currentSource === "string") {
+        if (parsed.wrote === false && typeof parsed.source === "string" && typeof parsed.currentSource === "string") {
           const applied = await runTool({
             tool: "multi_edit",
             arguments: {
               datamodel_type: "Edit",
-              file_path: String(args.script_path || "").trim().slice(0, 300),
+              file_path: scriptPath,
               edits: [{ old_string: parsed.currentSource, new_string: parsed.source }],
             },
           });
@@ -2090,7 +2399,7 @@ return result`;
         }
         return `Output of 'fix_script':\n${raw}`;
       }
-      return `Output of 'scan_script':\n${raw}`;
+      return `Output of 'fix_script':\n${raw}`;
     }
     // AI-to-AI offload: send ONE self-contained question to the model the user
     // configured in the popup (their own API key, fetched from background).
@@ -2238,6 +2547,12 @@ return result`;
     });
     let r = await Promise.race([bg({ type: "call_tool", name, arguments: args, timeout }), hardCap, stopWatch]);
     clearInterval(stopTimer);
+    // Track scripts the AI edited via multi_edit so the end-of-turn refactor
+    // notification can scan exactly what it wrote (only on success).
+    if (r && r.ok && bareName === "multi_edit" && typeof args.file_path === "string") {
+      const p = args.file_path.trim().slice(0, 300);
+      if (p && !refactorState.aiTouched.includes(p)) refactorState.aiTouched.push(p);
+    }
     if (r && r.kind === "stopped") return "(stopped by user)";
     if (!r) return ZS.FEEDBACK.bridgeOffline;
     // The MCP server answers SUCCESSFULLY (ok:true) when no Studio is attached
@@ -2392,6 +2707,7 @@ return result`;
     ui.showStop(true);
     P.setInputLock(true); // prevent user from typing while the agent is active
     ui.inputCover(true);  // keep the "Agent is working" cover up for the WHOLE loop
+    refactorState.aiTouched = []; // fresh per-run: only THIS run's writes trigger the toast
     diag("loop.start", { base });
     try {
       while (!A.stop) {
@@ -2642,6 +2958,15 @@ return result`;
       ui.inputCover(false); // lift the "Agent is working" cover when the loop ends
       P.setInputLock(false); // always unlock, even on error or stop
       diag("loop.end");
+      // The AI finished writing/editing scripts this run: scan what it touched
+      // and surface the refactor suggestions (Apply/Dismiss) in the toast.
+      // Deferred so the loop teardown above completes first; runs once.
+      if (refactorState.aiTouched.length) {
+        const touched = refactorState.aiTouched;
+        refactorState.aiTouched = [];
+        setTimeout(() => { refactorAfterTurn(touched); }, 600);
+        diag("loop.end.notify", { scripts: touched.length });
+      }
     }
   }
 
@@ -3584,10 +3909,11 @@ return result`;
     };
     const refreshMenu = () => { if (!menuEl.hidden) buildMenu(); };
     try {
-      chrome.storage.local.get(["zsAllowAiTools", "zsAllowAiSkills", "zsDisabledTools", "zsDisabledSkills", "zsSyntaxShield"], (r) => {
+      chrome.storage.local.get(["zsAllowAiTools", "zsAllowAiSkills", "zsDisabledTools", "zsDisabledSkills", "zsSyntaxShield", "zsAutoApproveFixes"], (r) => {
         A.allowAiTools = !r || r.zsAllowAiTools !== false;
         A.allowAiSkills = !r || r.zsAllowAiSkills !== false;
         syntaxShieldDefault = !r || r.zsSyntaxShield !== false;
+        autoApproveFixes = !!(r && r.zsAutoApproveFixes === true);
         if (r && Array.isArray(r.zsDisabledTools)) disabledTools = r.zsDisabledTools.filter((n) => typeof n === "string");
         if (r && Array.isArray(r.zsDisabledSkills)) disabledSkills = r.zsDisabledSkills.filter((n) => typeof n === "string");
         refreshToolNames();
@@ -3767,6 +4093,15 @@ return result`;
            <div id="zs-access-panel-skills" class="zs-access-panel" hidden></div>
          </section>
          <section class="zs-menu-sec">
+           <div class="zs-sec-label"><span>Refactor</span></div>
+           <div class="zs-menu-note">Scans every script for refactors (deprecated APIs, tween loops, Instance.new, math.random, indentation…) and applies only the ones you select. The AI's fixes land here too - nothing is written until you click Apply, unless Auto-approve is on.</div>
+           <label class="zs-access-row"><input id="zs-ref-auto" type="checkbox" ${autoApproveFixes ? "checked" : ""}><span class="zs-access-copy"><span class="zs-access-title">Auto-approve fixes</span><span class="zs-access-sub">Let the AI apply fix_script changes immediately (Studio undo still works)</span></span></label>
+           <div class="zs-ref-row"><input id="zs-ref-scope" class="zs-mcp-field" value="game" placeholder="Scan scope, e.g. game" /><button id="zs-ref-scan" class="zs-ref-btn">Scan</button></div>
+           <div id="zs-ref-status" class="zs-menu-note"></div>
+           <div id="zs-ref-list" class="zs-ref-list"></div>
+           <div class="zs-ref-row zs-ref-actions"><button id="zs-ref-apply">Apply selected</button><button id="zs-ref-undo">Undo last</button></div>
+         </section>
+         <section class="zs-menu-sec">
            <div class="zs-sec-label"><span>Free Support</span></div>
            <button class="zs-tip-opt zs-tip-star" data-u="${GITHUB_URL}"><span>Star on GitHub</span><span class="zs-tip-sub">free, helps a lot</span></button>
            ${WORKINK_URL ? `<button class="zs-tip-opt zs-tip-ad" data-u="${WORKINK_URL}"><span>Watch an ad to support</span><span class="zs-tip-sub">free, takes a minute</span></button>` : ""}
@@ -3933,7 +4268,165 @@ return result`;
         await waitForBridgeBack(id);
         buildMenu(); // rebuilds with the new server listed + spinner cleared
       });
+
+      // ── Refactor section: scan / apply selected / undo / auto-approve ────
+      const refAutoEl = menuEl.querySelector("#zs-ref-auto");
+      if (refAutoEl) refAutoEl.addEventListener("change", () => {
+        autoApproveFixes = refAutoEl.checked;
+        try { chrome.storage.local.set({ zsAutoApproveFixes: autoApproveFixes }); } catch {}
+      });
+      const refScopeEl = menuEl.querySelector("#zs-ref-scope");
+      const refStatusEl = menuEl.querySelector("#zs-ref-status");
+      const refScanBtn = menuEl.querySelector("#zs-ref-scan");
+      const refApplyBtn = menuEl.querySelector("#zs-ref-apply");
+      const refUndoBtn = menuEl.querySelector("#zs-ref-undo");
+      if (refScanBtn) refScanBtn.addEventListener("click", async () => {
+        const scope = ((refScopeEl && refScopeEl.value) || "game").trim().slice(0, 200) || "game";
+        if (refStatusEl) refStatusEl.textContent = "Scanning " + scope + "…";
+        const code = buildScriptEngineCode("scan", { scope, rules: FIX_ALL_RULES() });
+        const r = await runEngineDirect(code);
+        if (!r.ok) { if (refStatusEl) refStatusEl.textContent = "Scan failed: " + (r.error || "unknown"); return; }
+        const added = refactorIngest(r.result, { source: "scan", rules: FIX_ALL_RULES() });
+        if (refStatusEl) refStatusEl.textContent = r.result.checked != null
+          ? `Checked ${r.result.checked} script(s), ${r.result.matches.length} match(es)` + (added ? ` (+${added} new)` : "") + (r.result.truncated ? " (list capped)" : "")
+          : "Scan finished" + (r.result.error ? " - " + r.result.error : "");
+        renderRefactorSection();
+      });
+      if (refApplyBtn) refApplyBtn.addEventListener("click", async () => {
+        const selected = refactorState.items.filter((i) => i.status === "pending" && refSel.has(i.script + "|" + i.group));
+        if (!selected.length) { if (refStatusEl) refStatusEl.textContent = "Nothing selected."; return; }
+        if (refStatusEl) refStatusEl.textContent = "Applying…";
+        const r = await refactorApply(selected);
+        if (refStatusEl) refStatusEl.textContent = r.ok
+          ? `Applied ${r.applied} refactor(s) in ${r.snapshots} script(s).` + (r.error ? " " + r.error : "")
+          : "Apply failed: " + r.error;
+        renderRefactorSection();
+      });
+      if (refUndoBtn) refUndoBtn.addEventListener("click", async () => {
+        const r = await refactorUndoLast();
+        if (refStatusEl) refStatusEl.textContent = r.ok
+          ? `Undid the last apply (${r.scripts} script(s), ${r.restored} source(s) restored).`
+          : "Undo: " + r.error;
+        renderRefactorSection();
+      });
+      renderRefactorSection();
     }
+
+    // ── Refactor review list + "Refactors available" notification toast ────
+    // The toast is the notification the user asked for: it appears ONLY after
+    // the AI finishes writing/editing scripts, lists every suggested refactor
+    // found in what the AI made, and each entry has Apply / Dismiss buttons.
+    // Applying from the toast changes ONLY that refactor in that script - the
+    // same engine "apply" path the Refactor section's Apply selected uses.
+    const refSel = new Set(); // checked group keys ("script|group") in the section list
+    function renderRefactorSection() {
+      const listEl = menuEl && menuEl.querySelector("#zs-ref-list");
+      if (listEl) {
+        const items = refactorState.items;
+        if (!items.length) {
+          listEl.innerHTML = `<div class="zs-menu-note">No refactors found yet. Run a scan above, or ask the AI to work on your scripts - its findings appear here for you to approve.</div>`;
+        } else {
+          const groups = new Map();
+          for (const it of items) {
+            const gk = it.script + "|" + it.group;
+            let g = groups.get(gk);
+            if (!g) { g = { script: it.script, group: it.group, rule: it.rule, message: it.message, lines: [], status: it.status }; groups.set(gk, g); }
+            g.lines.push(it);
+            if (it.status === "applied") g.status = "applied";
+          }
+          let html = "";
+          let curScript = null;
+          for (const [gk, g] of groups) {
+            if (g.script !== curScript) { curScript = g.script; html += `<div class="zs-ref-script">${escHtml(curScript)}</div>`; }
+            const checked = g.status === "applied" || refSel.has(gk);
+            const preview = g.lines.slice(0, 2).map((l) =>
+              `<div class="zs-ref-prev">L${escHtml(l.line)}: <span class="zs-ref-del">${escHtml(String(l.before || "").slice(0, 90)) || "(new line)"}</span> → <span class="zs-ref-add">${escHtml(String(l.after || "").slice(0, 90)) || "(removed)"}</span></div>`).join("");
+            const more = g.lines.length > 2 ? `<div class="zs-ref-more">+${g.lines.length - 2} more edit(s) in this refactor</div>` : "";
+            html += `<div class="zs-ref-group${g.status === "applied" ? " zs-ref-applied" : ""}">
+              <label class="zs-access-row zs-access-row-item"><input type="checkbox" data-gk="${escHtml(gk)}" ${checked ? "checked" : ""} ${g.status === "applied" ? "disabled" : ""}><span class="zs-access-copy"><span class="zs-access-title">${escHtml(g.rule)}</span><span class="zs-access-sub">${escHtml(g.message)}</span></span></label>
+              ${preview}${more}</div>`;
+          }
+          listEl.innerHTML = html;
+          listEl.querySelectorAll("input[type=checkbox]").forEach((cb) => cb.addEventListener("change", () => {
+            const k = cb.dataset.gk;
+            if (cb.checked) refSel.add(k); else refSel.delete(k);
+          }));
+        }
+      }
+      renderRefactorToast();
+    }
+
+    let refToast = null;
+    function ensureRefactorToast() {
+      if (refToast || !root) return refToast;
+      refToast = document.createElement("div");
+      refToast.id = "zs-ref-toast";
+      refToast.hidden = true;
+      refToast.innerHTML = `
+        <div class="zs-ref-toast-head">
+          <span class="zs-ref-toast-title">Refactors available <b id="zs-ref-toast-count"></b></span>
+          <span class="zs-ref-toast-acts">
+            <button id="zs-ref-toast-applyall">Apply all</button>
+            <button id="zs-ref-toast-dismissall">Dismiss all</button>
+            <button id="zs-ref-toast-close" title="Close">✕</button>
+          </span>
+        </div>
+        <div id="zs-ref-toast-body"></div>`;
+      root.appendChild(refToast);
+      refToast.querySelector("#zs-ref-toast-close").addEventListener("click", () => { refToast.hidden = true; });
+      refToast.querySelector("#zs-ref-toast-applyall").addEventListener("click", async () => {
+        const pending = refactorState.items.filter((i) => i.status === "pending");
+        await refactorApply(pending);
+        renderRefactorToast();
+      });
+      refToast.querySelector("#zs-ref-toast-dismissall").addEventListener("click", () => {
+        const keys = new Set(refactorState.items.filter((i) => i.status === "pending").map((i) => i.key));
+        refactorState.items = refactorState.items.filter((i) => !keys.has(i.key));
+        renderRefactorToast();
+      });
+      return refToast;
+    }
+    function renderRefactorToast() {
+      const t = ensureRefactorToast();
+      if (!t) return;
+      const pending = refactorState.items.filter((i) => i.status === "pending");
+      const body = t.querySelector("#zs-ref-toast-body");
+      if (!pending.length) { t.hidden = true; body.innerHTML = ""; return; }
+      t.hidden = false;
+      t.querySelector("#zs-ref-toast-count").textContent = String(pending.length);
+      const groups = new Map();
+      for (const it of pending) {
+        const gk = it.script + "|" + it.group;
+        let g = groups.get(gk);
+        if (!g) { g = { script: it.script, group: it.group, rule: it.rule, message: it.message, lines: 0 }; groups.set(gk, g); }
+        g.lines++;
+      }
+      body.innerHTML = [...groups.entries()].map(([gk, g]) => `
+        <div class="zs-ref-toast-item" data-gk="${escHtml(gk)}">
+          <div class="zs-ref-toast-main">
+            <span class="zs-ref-rule">${escHtml(g.rule)}</span>
+            <span class="zs-ref-msg">${escHtml(g.message)}${g.lines > 1 ? ` <span class="zs-ref-cnt">×${g.lines}</span>` : ""}</span>
+            <span class="zs-ref-script">${escHtml(g.script)}</span>
+          </div>
+          <span class="zs-ref-toast-item-acts">
+            <button class="zs-ref-toast-go">Apply</button>
+            <button class="zs-ref-toast-x">Dismiss</button>
+          </span>
+        </div>`).join("");
+      body.querySelectorAll(".zs-ref-toast-go").forEach((b) => b.addEventListener("click", async () => {
+        const gk = b.closest(".zs-ref-toast-item").dataset.gk;
+        const its = refactorState.items.filter((i) => i.status === "pending" && i.script + "|" + i.group === gk);
+        await refactorApply(its);
+        renderRefactorToast();
+      }));
+      body.querySelectorAll(".zs-ref-toast-x").forEach((b) => b.addEventListener("click", () => {
+        const gk = b.closest(".zs-ref-toast-item").dataset.gk;
+        const keys = new Set(refactorState.items.filter((i) => i.script + "|" + i.group === gk).map((i) => i.key));
+        refactorState.items = refactorState.items.filter((i) => !keys.has(i.key));
+        renderRefactorToast();
+      }));
+    }
+    function showRefactorToast() { renderRefactorToast(); }
 
     // ── First-time onboarding card (bridge missing) ─────────────────────────
     let setupCard = null, setupSeen = false, setupRaf = null;
@@ -4761,7 +5254,7 @@ return result`;
     }
 
     build();
-    return { setStatus, setStarted, setStarting, showStop, markStopping, inputCover, toast, banner, showImages, nudgeStart, updateStartGate, refreshSetup, getCustomPrompt, getAiAccess, getCustomMcpServers, openMenu: (toSupport) => openMenuFn && openMenuFn(toSupport) };
+    return { setStatus, setStarted, setStarting, showStop, markStopping, inputCover, toast, banner, showImages, nudgeStart, updateStartGate, refreshSetup, getCustomPrompt, getAiAccess, getCustomMcpServers, openMenu: (toSupport) => openMenuFn && openMenuFn(toSupport), renderRefactor: renderRefactorSection, showRefactorToast };
   })();
 
   // ── Live token + timer, shown ONLY on a tool call's chip detail. The
