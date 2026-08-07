@@ -3,7 +3,7 @@
 # for the GitHub release. Embeds build.json (version + git build id + per-file
 # sha256 manifest) which the bridge's self-updater uses to detect a newer build
 # and to rewrite ONLY changed files. A copy of build.json is also written into
-# zeroscript-extension/ (the extension's own build marker, readable via
+# rlscript-extension/ (the extension's own build marker, readable via
 # chrome.runtime.getURL("build.json")) and into Compressed/ so it can be
 # uploaded alongside the zip as the tiny release asset the extension-side
 # updater reads. config.json IS included (fresh-install copy with %VAR%
@@ -16,7 +16,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "Compressed")
-EXT_DIR = os.path.join(HERE, "zeroscript-extension")
+EXT_DIR = os.path.join(HERE, "rlscript-extension")
 SKIP_ROOTS = {".git", "Compressed", "__pycache__", "build_zip.py", "build.json", ".gitignore", "assets", "logs"}
 SKIP_DIRS = {"__pycache__", ".git"}
 

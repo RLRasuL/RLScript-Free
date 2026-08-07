@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // providers/arena.js - the Arena (arena.ai) provider.
-// Exports the same ZSProvider interface as providers/deepseek.js; the core
+// Exports the same RLProvider interface as providers/deepseek.js; the core
 // (core/main.js) is provider-agnostic. To DISABLE Arena support, remove this
 // file from manifest.json (and its URL from background.js PROVIDER_URLS).
 //
@@ -25,7 +25,7 @@
 //    by an aria-label "Stop generation" button for the WHOLE generation.
 //  - Conversation URL is /c/<uuid>; a fresh chat is /text/direct (no id yet).
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {}; // injected by core via init()
@@ -190,7 +190,7 @@ const ZSProvider = (() => {
   // Walk the tree skipping the core's chip (and any extra excluded subtree).
   function textWithout(root, excludeSel) {
     if (!root) return "";
-    const skip = ".zs-chip" + (excludeSel ? ", " + excludeSel : "");
+    const skip = ".rl-chip" + (excludeSel ? ", " + excludeSel : "");
     let t = "";
     const walk = (n) => {
       if (n.nodeType === 3) { t += n.nodeValue; return; }
@@ -226,11 +226,11 @@ const ZSProvider = (() => {
 
   // The composer textarea = the ONLY <textarea> inside a <form> (other page
   // textareas are recaptcha/aria-hidden). Scope away RLScript's own settings
-  // textarea (#zs-root) so the send hooks' "not on a chat page" guard holds on
+  // textarea (#rl-root) so the send hooks' "not on a chat page" guard holds on
   // login/OAuth pages that have no site composer.
   const getEditor = () => {
     for (const e of document.querySelectorAll("form textarea")) {
-      if (!e.closest("#zs-root")) return e;
+      if (!e.closest("#rl-root")) return e;
     }
     return null;
   };
@@ -275,9 +275,9 @@ const ZSProvider = (() => {
   };
 
   // Arena is a React app that reconciles the composer subtree, so we must NOT
-  // insert #zs-bar into it (the diff could nest the composer inside the bar, as
+  // insert #rl-bar into it (the diff could nest the composer inside the bar, as
   // seen on Kimi/GLM). barAnchor() returns the rounded composer CARD; the core
-  // (placeBar anchored branch) keeps the bar in #zs-root, hugs the card's top
+  // (placeBar anchored branch) keeps the bar in #rl-root, hugs the card's top
   // edge at full width and reserves the strip with padding-top.
   function barAnchor() {
     const ed = getEditor();
@@ -299,12 +299,12 @@ const ZSProvider = (() => {
     const ed = getEditor();
     if (!ed) return;
     if (on) {
-      if (!ed.dataset.zsPlaceholder) ed.dataset.zsPlaceholder = ed.getAttribute("placeholder") || "";
+      if (!ed.dataset.rlPlaceholder) ed.dataset.rlPlaceholder = ed.getAttribute("placeholder") || "";
       ed.setAttribute("readonly", "");
       ed.setAttribute("placeholder", "⏳ Agent working… please wait");
     } else {
       ed.removeAttribute("readonly");
-      if (ed.dataset.zsPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.zsPlaceholder);
+      if (ed.dataset.rlPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.rlPlaceholder);
     }
   }
 
@@ -323,7 +323,7 @@ const ZSProvider = (() => {
   function streamText(item) {
     if (!item) return "";
     const md = proseOf(item);
-    return md ? textWithout(md, ".zs-chip") : "";
+    return md ? textWithout(md, ".rl-chip") : "";
   }
   const streamLen = (item) => streamText(item === undefined ? lastAssistant() : item).length;
 
@@ -377,7 +377,7 @@ const ZSProvider = (() => {
     const md = proseOf(item);
     return {
       present: true,
-      reply: md ? textWithout(md, ".zs-chip").trim() : "",
+      reply: md ? textWithout(md, ".rl-chip").trim() : "",
       thinking: "",
       item,
     };
@@ -433,9 +433,9 @@ const ZSProvider = (() => {
     if (images && images.length) tagImages(images);
     diag("arena.tas.enter", {
       textLen: (text || "").length,
-      imgId: images ? images.__zsId : null,
+      imgId: images ? images.__rlId : null,
       imgCount: images ? images.length : 0,
-      attachedId: _attachedImages ? _attachedImages.__zsId : null,
+      attachedId: _attachedImages ? _attachedImages.__rlId : null,
       sameSet: images === _attachedImages,
       pendingBefore: pendingCount(),
     });
@@ -463,12 +463,12 @@ const ZSProvider = (() => {
       try {
         const ok = await attachImages(images);
         if (ok) _attachedImages = images;
-        diag("arena.tas.attached", { imgId: images.__zsId, ok, pendingAfter: pendingCount() });
+        diag("arena.tas.attached", { imgId: images.__rlId, ok, pendingAfter: pendingCount() });
       } catch (e) { diag("arena.tas.attachErr", { msg: String(e && e.message || e) }); }
       // Staging the file re-disables send for ~0.4s while Arena ingests it.
       await waitFor(sendReady, 6000);
     } else {
-      diag("arena.tas.skipAttach", { reason: !images || !images.length ? "no-images" : "same-set", imgId: images ? images.__zsId : null });
+      diag("arena.tas.skipAttach", { reason: !images || !images.length ? "no-images" : "same-set", imgId: images ? images.__rlId : null });
     }
     // Click and CONFIRM the send took (editor clears the instant Arena accepts
     // it, image AND text paths). Re-click until it clears so a single swallowed
@@ -659,10 +659,10 @@ const ZSProvider = (() => {
   // on its buttons - e.g. "Continue with Google" at sign-in. The core hides the
   // bar whenever this is true (same get-out-of-the-way path as captchaPresent).
   // reallyVisible() ignores display:none / detached closed dialogs, so a chat page
-  // with no open modal never matches. Our own UI lives in #zs-root and is skipped.
+  // with no open modal never matches. Our own UI lives in #rl-root and is skipped.
   function overlayBlocking() {
     for (const d of document.querySelectorAll('[role="dialog"]')) {
-      if (d.closest("#zs-root")) continue;
+      if (d.closest("#rl-root")) continue;
       if (reallyVisible(d)) return true;
     }
     return false;
@@ -717,7 +717,7 @@ const ZSProvider = (() => {
     const arr = new Uint8Array(bin.length);
     for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
     const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    return new File([arr], `rlscript_${Date.now()}_${i}.${ext}`, { type: mime });
   }
   // The PENDING preview: each staged image mounts as
   // `.flex.flex-wrap.gap-2 > div.group > img` (alt = filename, blob: src) INSIDE
@@ -738,8 +738,8 @@ const ZSProvider = (() => {
   // being (re)attached across the core's retries (same array = same id).
   let _imgSeq = 0;
   function tagImages(images) {
-    if (images && images.__zsId == null) {
-      try { Object.defineProperty(images, "__zsId", { value: ++_imgSeq, enumerable: false }); } catch { images.__zsId = ++_imgSeq; }
+    if (images && images.__rlId == null) {
+      try { Object.defineProperty(images, "__rlId", { value: ++_imgSeq, enumerable: false }); } catch { images.__rlId = ++_imgSeq; }
     }
     return images;
   }
@@ -822,9 +822,9 @@ const ZSProvider = (() => {
   // <div class="not-prose"> (markers/JSON intact in textContent). Hide every
   // such wrapper carrying a command shape, plus any bare top-level block holding
   // an inline command. React recreates the rendered subtree on stream settle and
-  // on the next send (wiping per-element .zs-tool-hide), so also mark the turn
+  // on the next send (wiping per-element .rl-tool-hide), so also mark the turn
   // (its identity survives - the chip is anchored at item level) with
-  // .zs-cmd-mask; the overlay.css rule keeps recreated code wrappers hidden.
+  // .rl-cmd-mask; the overlay.css rule keeps recreated code wrappers hidden.
   const CMD_SHAPE = /"(?:command|tool)"\s*:\s*"|###\s*lua|###mcp_tool###/i;
   function findToolBlockSpot(item /*, chip */) {
     const md = proseOf(item);
@@ -832,20 +832,20 @@ const ZSProvider = (() => {
     let hidAny = null;
     // 1. Fenced code wrappers carrying a command.
     md.querySelectorAll(S.codeWrap).forEach((cw) => {
-      if (cw.closest(".zs-chip")) return;
+      if (cw.closest(".rl-chip")) return;
       if (CMD_SHAPE.test(cw.textContent || "")) {
-        cw.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        cw.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         hidAny = hidAny || { parent: cw.parentElement, ref: cw };
       }
     });
     // 2. Bare top-level blocks with an inline command (no code wrapper inside).
     [...md.children].forEach((el) => {
-      if (el.classList.contains("zs-chip") || el.querySelector(S.codeWrap)) return;
+      if (el.classList.contains("rl-chip") || el.querySelector(S.codeWrap)) return;
       const t = el.textContent || "";
       if (t.length < 600 && CMD_SHAPE.test(t)) {
-        el.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        el.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         hidAny = hidAny || { parent: el.parentElement, ref: el };
       }
     });

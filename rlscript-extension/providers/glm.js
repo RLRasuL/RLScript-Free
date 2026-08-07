@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // providers/glm.js - the GLM / Z.ai (chat.z.ai) provider.
-// Exports the same ZSProvider interface as providers/deepseek.js and gemini.js;
+// Exports the same RLProvider interface as providers/deepseek.js and gemini.js;
 // the core (core/main.js) is provider-agnostic. To DISABLE GLM support, remove
 // this file from manifest.json (and its URL from background.js PROVIDER_URLS).
 //
@@ -25,7 +25,7 @@
 //    `.copy-code-button`; the command JSON survives in textContent.
 //  - Conversation URL is /c/<uuid>; a fresh chat is exactly "/".
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {}; // injected by core via init()
@@ -46,7 +46,7 @@ const ZSProvider = (() => {
     // as the FIRST child div of `.chat-user`, BEFORE the message text. Its
     // filename text would otherwise prefix the turn's classifyText - which broke
     // the result-chip: the core anchors on /^Output of '/ (isInjectedFeedback),
-    // so "zeroscript_….jpg JPG 179 KB Output of 'screen_capture'…" failed to match
+    // so "rlscript_….jpg JPG 179 KB Output of 'screen_capture'…" failed to match
     // and the screen_capture feedback turn stayed un-chipped (visible raw output,
     // unlike Kimi). Strip it from every text read. Precise: only the child holding
     // the attachment image, never the sibling text block.
@@ -89,7 +89,7 @@ const ZSProvider = (() => {
   // blocks drafted inside reasoning are never detected, shown, or executed.
   function textWithout(root, excludeSel) {
     if (!root) return "";
-    const skip = S.thinking + ", .zs-chip, " + S.attachment + (excludeSel ? ", " + excludeSel : "");
+    const skip = S.thinking + ", .rl-chip, " + S.attachment + (excludeSel ? ", " + excludeSel : "");
     let t = "";
     const walk = (n) => {
       if (n.nodeType === 3) { t += n.nodeValue; return; }
@@ -120,13 +120,13 @@ const ZSProvider = (() => {
   const assistantCount = () => assistantItems().length;
   const userCount = () => document.querySelectorAll(S.userItem).length;
   // Scope to the SITE's composer only: skip RLScript's own injected UI (the
-  // settings textarea #zs-set-text in #zs-root). On login/OAuth pages with no
+  // settings textarea #rl-set-text in #rl-root). On login/OAuth pages with no
   // site editor this returns null, keeping the "not on a chat page" guard in
   // the send hooks intact (otherwise our own textarea would defeat it and the
   // hooks could swallow the site's login button).
   const getEditor = () => {
     for (const e of document.querySelectorAll(S.editor)) {
-      if (!e.closest("#zs-root")) return e;
+      if (!e.closest("#rl-root")) return e;
     }
     return null;
   };
@@ -186,12 +186,12 @@ const ZSProvider = (() => {
     (getEditor() ? getEditor().closest("form, .relative") : null);
 
   // Integrated status bar (same approach as Kimi): GLM is a Svelte app that
-  // reconciles the composer subtree, so we must NOT insert our #zs-bar into it
+  // reconciles the composer subtree, so we must NOT insert our #rl-bar into it
   // (a foreign node in a framework-managed parent risks the diff nesting the
   // composer inside the bar). barAnchor() returns the rounded composer CARD - the
   // `flex flex-col … rounded-xl` ancestor of the textarea, which holds the input
   // box then the toolbar row - and the core (placeBar anchored branch) keeps the
-  // bar in #zs-root, positions it to hug that card's top edge at full width, and
+  // bar in #rl-root, positions it to hug that card's top edge at full width, and
   // reserves the strip with padding-top. Validated live: full width, hugs top,
   // pushes the input down with no overlap.
   function barAnchor() {
@@ -207,12 +207,12 @@ const ZSProvider = (() => {
     const ed = getEditor();
     if (!ed) return;
     if (on) {
-      if (!ed.dataset.zsPlaceholder) ed.dataset.zsPlaceholder = ed.getAttribute("placeholder") || "";
+      if (!ed.dataset.rlPlaceholder) ed.dataset.rlPlaceholder = ed.getAttribute("placeholder") || "";
       ed.setAttribute("readonly", "");
       ed.setAttribute("placeholder", "⏳ Agent working… please wait");
     } else {
       ed.removeAttribute("readonly");
-      if (ed.dataset.zsPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.zsPlaceholder);
+      if (ed.dataset.rlPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.rlPlaceholder);
     }
   }
 
@@ -410,7 +410,7 @@ const ZSProvider = (() => {
     const arr = new Uint8Array(bin.length);
     for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
     const ext = mime.includes("png") ? "png" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    return new File([arr], `rlscript_${Date.now()}_${i}.${ext}`, { type: mime });
   }
   // The PENDING attachment chip. z.ai mounts each staged upload as a
   // `.chip-scroll > button` inside the composer card (barAnchor). A SENT image
@@ -521,7 +521,7 @@ const ZSProvider = (() => {
   // Svelte re-renders the markdown subtree on stream updates / next send. So,
   // like Gemini: hide every code wrapper in the reply whose text carries a
   // command shape AND mark the reply root (`.chat-assistant`, which keeps its
-  // identity) with .zs-cmd-mask so a CSS rule re-hides recreated wrappers with
+  // identity) with .rl-cmd-mask so a CSS rule re-hides recreated wrappers with
   // zero flash. Also catch a stray bare inline command paragraph.
   const CMD_SHAPE = /"(?:command|tool)"\s*:\s*"|###\s*lua|###mcp_tool###/i;
   function findToolBlockSpot(item /*, chip */) {
@@ -531,21 +531,21 @@ const ZSProvider = (() => {
     for (const cc of item.querySelectorAll(S.copyCodeBtn)) {
       if (cc.closest(S.thinking)) continue;
       const wrap = cc.closest(S.codeWrap);
-      if (!wrap || wrap.closest(".zs-chip")) continue;
+      if (!wrap || wrap.closest(".rl-chip")) continue;
       if (CMD_SHAPE.test(wrap.textContent || "")) {
-        wrap.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        wrap.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         hidAny = hidAny || { parent: wrap.parentElement, ref: wrap };
       }
     }
     // 2. Bare top-level blocks with an inline command (no code wrapper inside).
     const reply = item.querySelector(".markdown-prose") || item;
     [...reply.children].forEach((el) => {
-      if (el.classList.contains("zs-chip") || el.closest(S.thinking) ||
+      if (el.classList.contains("rl-chip") || el.closest(S.thinking) ||
           el.querySelector(S.copyCodeBtn)) return;
       const t = el.textContent || "";
       if (t.length < 600 && CMD_SHAPE.test(t)) {
-        el.classList.add("zs-tool-hide");
+        el.classList.add("rl-tool-hide");
         hidAny = hidAny || { parent: el.parentElement, ref: el };
       }
     });

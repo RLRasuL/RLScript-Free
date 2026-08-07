@@ -4,22 +4,22 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
-**RLScript** (formerly ZeroScript) is a free browser extension that turns DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT or Copilot into a Roblox Studio AI agent.
+**RLScript** (formerly RLScript) is a free browser extension that turns DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT or Copilot into a Roblox Studio AI agent.
 Control Roblox Studio with AI directly from your browser - read/edit scripts, run Luau, generate assets, all from a normal AI chat. No API key, no terminal, no coding needed.
 
-> 🌐 **Website: [zeroscript-five.vercel.app](https://zeroscript-five.vercel.app)** the free Lemonade.gg / Luamotion alternative for building Roblox games with AI.
+> 🌐 **Website: [rlscript-five.vercel.app](https://rlscript-five.vercel.app)** the free Lemonade.gg / Luamotion alternative for building Roblox games with AI.
 
 Supported AI entry points include **DeepSeek** (chat.deepseek.com, recommended), **Google Gemini** (gemini.google.com), **Kimi** (kimi.com, Moonshot AI), **GLM** (chat.z.ai, Z.ai), **Qwen** (chat.qwen.ai), **Arena Agent** (arena.ai/agent), **Meta AI** (meta.ai), **MiniMax** (agent.minimax.io), **Grok** (grok.com), **Claude** (claude.ai), **ChatGPT** (chatgpt.com) and **Copilot** (copilot.microsoft.com). MiniMax, Grok, Claude, ChatGPT and Copilot may require you to be signed in before starting a session.
 
 > 💬 **Stuck? Join the [Discord community](https://discord.gg/9aNyZsMWcb)** get help, share feedback, and follow updates.
 
-> *Also known as: ZeroScript Roblox, ZeroScript free download, Roblox DeepSeek agent, Roblox Gemini agent, Roblox Kimi agent, Roblox GLM agent, Roblox Qwen agent, Roblox Arena agent, Roblox Meta AI agent, Roblox Studio AI automation, Luau AI, MCP Roblox, lemonade alternative free, lemonade.gg alternative, free Roblox AI agent, free lemonade roblox alternative*
+> *Also known as: RLScript Roblox, RLScript free download, Roblox DeepSeek agent, Roblox Gemini agent, Roblox Kimi agent, Roblox GLM agent, Roblox Qwen agent, Roblox Arena agent, Roblox Meta AI agent, Roblox Studio AI automation, Luau AI, MCP Roblox, lemonade alternative free, lemonade.gg alternative, free Roblox AI agent, free lemonade roblox alternative*
 
 ## ⚠️ RLScript is Free Beware of Paid Copycats
 
 RLScript is 100% free and open-source. It always has been, and it always will be. There is no official paid version, no subscription, and no sign-in required to use the extension.
 
-If you come across a site or extension using the RLScript or ZeroScript name that asks for payment or account creation, it is **not** this project. The only official links are the ones listed at the top of this README.
+If you come across a site or extension using the RLScript or RLScript name that asks for payment or account creation, it is **not** this project. The only official links are the ones listed at the top of this README.
 
 ## How it works
 
@@ -34,7 +34,7 @@ The extension runs inside the chat page (DeepSeek, Gemini, Kimi, GLM, Qwen, Aren
 - [Download the latest release](https://github.com/RLRasuL/RLScript-Free/releases/latest)
 - [Download the current source ZIP](https://github.com/RLRasuL/RLScript-Free/archive/refs/heads/main.zip)
 
-Extract the ZIP, then load its `zeroscript-extension` folder as an unpacked browser extension.
+Extract the ZIP, then load its `rlscript-extension` folder as an unpacked browser extension.
 
 ## Setup
 
@@ -49,7 +49,7 @@ To load the extension:
 - Go to `edge://extensions` (Edge) or `chrome://extensions` (Chrome)
 - Enable **Developer mode** (top right toggle)
 - Click **Load unpacked**
-- Select the `zeroscript-extension` folder from the extracted zip
+- Select the `rlscript-extension` folder from the extracted zip
 
 ### 2. Start Roblox Studio and enable MCP
 

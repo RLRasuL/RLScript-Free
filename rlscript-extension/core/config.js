@@ -3,13 +3,13 @@
 // feedback strings, tool categorisation. NOTHING in this file may reference a
 // specific AI site (DOM, selectors, site names) - that lives in providers/*.
 // eslint-disable-next-line no-unused-vars
-const ZS = (() => {
+const RL = (() => {
   "use strict";
 
   // Display name + unique marker injected at the top of the system prompt so the
   // content script can reliably recognise (and camouflage) the bootstrap turn.
   const APP_NAME = "RLScript";
-  const SYS_MARKER = "⟦ZS-SYS⟧";
+  const SYS_MARKER = "⟦RL-SYS⟧";
 
   // ── Tool → visual category (icon + colour theme for the chips) ─────────
   // Roblox Studio MCP only. Returns one of:
@@ -457,9 +457,9 @@ When the user wants mechanical cleanup of existing scripts - outdated/deprecated
 - The tools you manually created (multi_edit etc.) remain available for the structural/judgment work the fixer cannot do: new systems, game logic, naming changes.
 
 ━━━ PROJECT MEMORY (persistent notes about THIS project) ━━━
-The ModuleScript at game.ServerStorage.ZeroScript.Memory is your long-term memory for this project, saved inside the place. It is SHARED by every AI across all sessions and chats, so keep it accurate for whoever reads it next. Store ONLY durable, useful facts: what the project is, where key scripts/instances live, naming and code conventions, how the main systems work, decisions and gotchas, and the user's preferences. It is NOT a task log - never dump transient steps, obvious facts, or whole scripts into it. Keep it short.
+The ModuleScript at game.ServerStorage.RLScript.Memory is your long-term memory for this project, saved inside the place. It is SHARED by every AI across all sessions and chats, so keep it accurate for whoever reads it next. Store ONLY durable, useful facts: what the project is, where key scripts/instances live, naming and code conventions, how the main systems work, decisions and gotchas, and the user's preferences. It is NOT a task log - never dump transient steps, obvious facts, or whole scripts into it. Keep it short.
 
-- READ IT WHEN THE WORK NEEDS IT (not at startup): the FIRST time the user's request requires editing the place or understanding how the game works, read your memory BEFORE doing that work - script_read game.ServerStorage.ZeroScript.Memory. Skip it for pure chit-chat or questions unrelated to the project. If it does not exist yet, create it with multi_edit (className "ModuleScript", first edit with old_string "") using exactly this skeleton (multi_edit auto-creates the legacy ZeroScript folder):
+- READ IT WHEN THE WORK NEEDS IT (not at startup): the FIRST time the user's request requires editing the place or understanding how the game works, read your memory BEFORE doing that work - script_read game.ServerStorage.RLScript.Memory. Skip it for pure chit-chat or questions unrelated to the project. If it does not exist yet, create it with multi_edit (className "ModuleScript", first edit with old_string "") using exactly this skeleton (multi_edit auto-creates the legacy RLScript folder):
 ${BT}
 return [==[
 # Project memory
@@ -608,7 +608,7 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
     return (
       "(Reminder: if you've learned anything DURABLE about this project since your last memory update " +
       "(architecture, where things live, conventions, decisions, user preferences), update your shared project memory at " +
-      "game.ServerStorage.ZeroScript.Memory with multi_edit - only useful, lasting facts. If nothing changed, ignore this.)"
+      "game.ServerStorage.RLScript.Memory with multi_edit - only useful, lasting facts. If nothing changed, ignore this.)"
     );
   }
 

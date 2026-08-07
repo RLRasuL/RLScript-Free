@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // core/main.js - the provider-agnostic agentic loop, UI and session state.
-// Drives any AI chat site through the ZSProvider interface (providers/*.js):
-// waits for the model's reply, parses RLScript commands (ZSParse), asks the
+// Drives any AI chat site through the RLProvider interface (providers/*.js):
+// waits for the model's reply, parses RLScript commands (RLParse), asks the
 // background worker to execute them on the Roblox MCP bridge, and feeds the
 // result back. Camouflages the system prompt ("Starting Up") and tool JSON
 // behind animated chips, masks injected input, and exposes a Stop button.
@@ -13,10 +13,10 @@
 
 (() => {
   "use strict";
-  const P = ZSProvider;
+  const P = RLProvider;
   const T = P.timings;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const log = (...a) => console.log("[zeroscript]", ...a);
+  const log = (...a) => console.log("[rlscript]", ...a);
 
   // ── Anti-bot mitigation (EXPERIMENTAL) ──────────────────────────────────
   // Suspected contributor to Arena's captcha: the agentic loop sends turns
@@ -36,7 +36,7 @@
   // ── Diagnostics ───────────────────────────────────────────────────────────
   // Persistent, lightweight breadcrumb log of the agentic loop's key decisions
   // (sends, response kinds, tool start/end, resumes, stops). Read back from the
-  // console (filter "[zs-diag]") or window.__zsDiag (also mirrored onto a hidden
+  // console (filter "[rl-diag]") or window.__rlDiag (also mirrored onto a hidden
   // DOM node for a main-world inspector). Each entry carries a turn snapshot.
   const ZS_DIAG_MAX = 300;
   const _diag = [];
@@ -48,19 +48,19 @@
                 data: data || null, snap };
     _diag.push(e);
     if (_diag.length > ZS_DIAG_MAX) _diag.shift();
-    try { console.log("[zs-diag]", e.iso, event, JSON.stringify({ ...data, ...snap })); } catch {}
+    try { console.log("[rl-diag]", e.iso, event, JSON.stringify({ ...data, ...snap })); } catch {}
     try {
-      let n = document.getElementById("zs-diag-log");
-      if (!n) { n = document.createElement("script"); n.type = "application/json"; n.id = "zs-diag-log"; (document.body || document.documentElement).appendChild(n); }
+      let n = document.getElementById("rl-diag-log");
+      if (!n) { n = document.createElement("script"); n.type = "application/json"; n.id = "rl-diag-log"; (document.body || document.documentElement).appendChild(n); }
       n.textContent = JSON.stringify(_diag);
     } catch {}
-    try { window.__zsDiag = _diag; } catch {}
+    try { window.__rlDiag = _diag; } catch {}
   }
   P.init({ diag });
   try {
     diag("boot", { url: location.href.slice(0, 160), host: location.host, path: location.pathname, editor: !!P.getEditor(), empty: P.chatIsEmpty(), items: P.allItems ? P.allItems().length : -1, key: P.conversationKey ? P.conversationKey() : null });
   } catch (e) {
-    try { console.log("[zs] boot diag failed:", e); } catch {}
+    try { console.log("[rl] boot diag failed:", e); } catch {}
   }
 
   // ── [TRACE] Main-thread stall detector ─────────────────────────────────────
@@ -95,7 +95,7 @@
   const VIDEO_URL = "https://youtu.be/kPKiZLZ9_Ps";
   // Work.ink locked link - free "watch an ad" support option. Set once the
   // locker is created at https://work.ink; the button is hidden until then.
-  const WORKINK_URL = "https://work.ink/2JXi/zeroscript-free-roblox-ai-coding-tool";
+  const WORKINK_URL = "https://work.ink/2JXi/rlscript-free-roblox-ai-coding-tool";
   // Roblox "tip" Game Passes - the native currency for the audience.
   const ROBUX_PASSES = [
     { robux: 30, id: 1865342947 },
@@ -203,7 +203,7 @@
   // Auto-approve refactors: when ON, fix_script applies + writes immediately
   // (Studio-native undo); when OFF (default), fix_script only PROPOSES and the
   // user must review and click Apply in the panel. Persisted by the Refactor
-  // section of the menu (chrome.storage.local "zsAutoApproveFixes").
+  // section of the menu (chrome.storage.local "rlAutoApproveFixes").
   let autoApproveFixes = false;
   // ── Interactive refactor state ──────────────────────────────────────────
   // Shared by runTool (AI paths: scan_script / fix_script) and the ui IIFE
@@ -217,7 +217,7 @@
     aiTouched: [],    // scripts the AI wrote/fixed during the current loop run
   };
   const escHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const FIX_ALL_RULES = () => (ZS.FIX_RULES || []).map((r) => r.id);
+  const FIX_ALL_RULES = () => (RL.FIX_RULES || []).map((r) => r.id);
 
   // Direct engine call used by the Refactor panel + after-turn notifications.
   // Bypasses runTool's AI gates - these are USER-driven actions, not AI tools.
@@ -689,7 +689,7 @@
 
       // Keep waiting while a tool command is still being streamed (opener written
       // but no end marker yet) so we never parse/finalize half a command.
-      const blockActive = ZSParse.hasOpenToolBlock(d.reply) && Date.now() - lastChangeAt < 6000;
+      const blockActive = RLParse.hasOpenToolBlock(d.reply) && Date.now() - lastChangeAt < 6000;
       // ...but once generation has clearly stopped (stop indicator gone past the
       // grace window), stop honoring an "open block" - it is DOM churn, not live
       // streaming. Lets a finished big block finalise in seconds instead of
@@ -709,7 +709,7 @@
       // here parsed the half-written JSON and stamped a false "bad JSON" error
       // while GLM was still typing. RESPONSE_TIMEOUT still bounds a truly stuck one.
       const stuckDone = started && d.reply && Date.now() - lastChangeAt > STABLE_MS &&
-        !(gen && ZSParse.hasOpenToolBlock(d.reply));
+        !(gen && RLParse.hasOpenToolBlock(d.reply));
       if ((gen || effectiveBlock) && !stuckDone) {
         // DIAG: attribute this wait. genOffFirstAt set ⇒ we are PAST first stop,
         // so any wait here is tail latency: either gen flickered back on, or an
@@ -794,8 +794,8 @@
       // delayed) and bound it with UNSETTLED_GRACE_MS. No-op on providers that
       // don't implement replyUnsettled (DeepSeek/Gemini/GLM/Kimi/Arena).
       const cmdShaped = P.replyUnsettled && (
-        ZSParse.hasToolSignature(r) ||
-        (ZSParse.LUA_END_RE.test(r) && !ZSParse.LUA_START_RE.test(r)) ||
+        RLParse.hasToolSignature(r) ||
+        (RLParse.LUA_END_RE.test(r) && !RLParse.LUA_START_RE.test(r)) ||
         (/"(?:datamodel_type|edits|old_string|new_string|file_path|target_file)"\s*:/.test(r) &&
           !/"command"\s*:/.test(r))
       );
@@ -823,14 +823,14 @@
         }
         await sleep(250); continue;                              // button not ready yet
       }
-      if (ZSParse.hasToolSignature(r)) {
-        const calls = ZSParse.parseToolCalls(r);
+      if (RLParse.hasToolSignature(r)) {
+        const calls = RLParse.parseToolCalls(r);
         if (calls.length) { finalizeDiag("tool"); return { kind: "tool", calls, item: d.item }; }
         // A half-written command + the site's "Continue" button means the command
         // was truncated mid-stream → resume it rather than reporting bad JSON.
         if (P.findContinueBtn()) return { kind: "truncated", text: r, item: d.item };
         // Only fire parse_error if explicit markers were present.
-        if (r.includes(ZSParse.START_M) || ZSParse.LUA_START_RE.test(r)) return { kind: "parse_error", reason: "malformed", raw: r, item: d.item };
+        if (r.includes(RLParse.START_M) || RLParse.LUA_START_RE.test(r)) return { kind: "parse_error", reason: "malformed", raw: r, item: d.item };
         // A command opener with no closer (a JSON object that never closed -
         // the model was halted mid-write and there is no Continue affordance):
         // ask the model to rewrite it instead of silently ending the turn.
@@ -842,8 +842,8 @@
         // still falls through to the parse_error feedback. Safe to run here:
         // generation has ended (the open-block branch above kept waiting
         // while it streamed).
-        if (ZSParse.hasOpenToolBlock(r)) {
-          const saved = ZSParse.salvageCutOff(r);
+        if (RLParse.hasOpenToolBlock(r)) {
+          const saved = RLParse.salvageCutOff(r);
           if (saved) {
             diag("tool.salvaged", { name: saved.tool });
             finalizeDiag("tool");
@@ -861,7 +861,7 @@
         // merely quotes {"command":"..."} (a DeepSeek-style explanation, or a
         // placeholder like "command_name") is NOT misread as a broken command and
         // looped on - only a real tool name means a genuine failed call.
-        const nm = ZSParse.toolNameFromText(r);
+        const nm = RLParse.toolNameFromText(r);
         if (nm && nm !== "command" && (A.toolNames.has(nm) || A.toolNames.has(bareToolName(nm)))) {
           return { kind: "parse_error", reason: "malformed", raw: r, item: d.item };
         }
@@ -870,7 +870,7 @@
       // FORGOT the ###LUA### opener, so hasToolSignature missed it and the block
       // never ran (seen on Gemini). Don't silently treat it as a final answer -
       // nudge a rewrite instead of leaving the user stuck on a dead turn.
-      if (ZSParse.LUA_END_RE.test(r) && !ZSParse.LUA_START_RE.test(r) && !r.includes(ZSParse.START_M)) {
+      if (RLParse.LUA_END_RE.test(r) && !RLParse.LUA_START_RE.test(r) && !r.includes(RLParse.START_M)) {
         return { kind: "parse_error", reason: "luaOpener", raw: r, item: d.item };
       }
       // Malformed command: the model emitted a tool's RAW ARGUMENTS as a bare JSON
@@ -929,10 +929,10 @@
   const ALWAYS_BLOCKED_TOOLS = new Set(["subagent"]);
   const VISION_TOOLS = new Set(["screen_capture"]);
   const bareToolName = (name) => (name && name.includes("/") ? name.split("/").pop() : name) || "";
-  const LOCAL_VIRTUAL_TOOLS = (ZS.VIRTUAL_TOOLS || []).map((tool) => ({
+  const LOCAL_VIRTUAL_TOOLS = (RL.VIRTUAL_TOOLS || []).map((tool) => ({
     ...tool,
     server: "roblox",
-    zeroscriptVirtual: true,
+    rlscriptVirtual: true,
   }));
   const enabledLocalVirtualTools = () => LOCAL_VIRTUAL_TOOLS.filter((tool) => {
     if (tool.name === "use_skill") return A.allowAiSkills;
@@ -951,7 +951,7 @@
 
   // ── Learned image tools (reload-proof "screen" chip) ──────────────────────
   // The known Roblox vision tool (screen_capture) is themed "screen" by name via
-  // ZS.toolCategory. A custom MCP tool's NAME reveals nothing, so we learn which
+  // RL.toolCategory. A custom MCP tool's NAME reveals nothing, so we learn which
   // ones return images and persist that across reloads: with it, a revisited or
   // reloaded conversation still shows the image-capture chip (not the generic
   // wrench), and the NEXT call of a known image tool is optimistic from the start.
@@ -964,11 +964,11 @@
     if (!bare || A.imageTools.has(bare)) return;
     A.imageTools.add(bare);
     diag("imageTool.remember", { name: bare, total: A.imageTools.size });
-    try { chrome.storage.local.set({ zsImageTools: [...A.imageTools].slice(-200) }); } catch {}
+    try { chrome.storage.local.set({ rlImageTools: [...A.imageTools].slice(-200) }); } catch {}
   }
   try {
-    chrome.storage.local.get("zsImageTools", (r) => {
-      if (r && Array.isArray(r.zsImageTools)) for (const n of r.zsImageTools) A.imageTools.add(n);
+    chrome.storage.local.get("rlImageTools", (r) => {
+      if (r && Array.isArray(r.rlImageTools)) for (const n of r.rlImageTools) A.imageTools.add(n);
       diag("imageTool.loaded", { tools: [...A.imageTools] });
     });
   } catch {}
@@ -2240,7 +2240,7 @@ return result`;
   // Validate the optional `rules` array for scan_script/fix_script. Returns the
   // ordered rule id list (default: every rule) or an ERROR message string.
   function sanitizeFixRules(rules) {
-    const valid = (ZS.FIX_RULES || []).map((r) => r.id);
+    const valid = (RL.FIX_RULES || []).map((r) => r.id);
     if (rules == null) return valid;
     if (!Array.isArray(rules)) return "rules must be an array of rule ids.";
     const out = [];
@@ -2255,7 +2255,7 @@ return result`;
   async function runTool(call) {
     const name = call.tool;
     const args = call.arguments || {};
-    if (!name) return ZS.FEEDBACK.parseError("malformed");
+    if (!name) return RL.FEEDBACK.parseError("malformed");
     const accessBareName = bareToolName(name);
     if ((name === "use_skill" || accessBareName === "skill") && !A.allowAiSkills) {
       return "ERROR: AI skills are disabled by the user. Do not call a skill again until the user enables AI skills in the RLScript menu.";
@@ -2293,7 +2293,7 @@ return result`;
     // keeps the full skill body out of every bootstrap prompt.
     if (name === "use_skill") {
       const requested = String(args.skill_name || "").trim();
-      const skill = ZS.getSkill && ZS.getSkill(requested);
+      const skill = RL.getSkill && RL.getSkill(requested);
       if (skill) {
         return `Output of 'use_skill':\nSkill ${requested} loaded.\n\n${skill.body}`;
       }
@@ -2301,7 +2301,7 @@ return result`;
       // command (skill_name = the rbx-* value) so the AI can trigger the
       // Roblox-authored workflows (unit tests, scene analysis, docs search, ...)
       // through the same use_skill entry point the model already knows.
-      const native = ZS.getNativeSkill && ZS.getNativeSkill(requested);
+      const native = RL.getNativeSkill && RL.getNativeSkill(requested);
       if (native) {
         const delegated = await runTool({
           tool: "skill",
@@ -2313,8 +2313,8 @@ return result`;
         return `Output of 'use_skill':\nRoblox native skill ${requested} loaded (from Studio).\n\n${delegated.replace(/^Output of '[^']*':\s*/, "")}`;
       }
       const available = [
-        ...Object.keys(ZS.BUILTIN_SKILLS || {}),
-        ...Object.keys(ZS.NATIVE_SKILLS || {}),
+        ...Object.keys(RL.BUILTIN_SKILLS || {}),
+        ...Object.keys(RL.NATIVE_SKILLS || {}),
       ].join(", ") || "none";
       return `ERROR: unknown RLScript skill "${requested}". Available skills: ${available}.`;
     }
@@ -2519,14 +2519,14 @@ return result`;
         const paramLines = [compact.length ? `    ${compact.join(", ")}` : "", ...detailed].filter(Boolean).join("\n");
         // Tested usage note for the error-prone commands - kept full-length
         // (these are validated fixes for real bugs, not filler).
-        const note = ZS.TOOL_NOTES[bareToolName(t.name)];
+        const note = RL.TOOL_NOTES[bareToolName(t.name)];
         const noteStr = note ? `\n    ⚠ ${note}` : "";
         return `${t.name}: ${(t.description || "").split("\n")[0]}${paramLines ? "\n" + paramLines : ""}${noteStr}`;
       });
       return `Output of '${name}':\n${requested} commands (${scoped.length}):\n\n${lines.join("\n\n")}`;
     }
     if (A.toolNames.size && !A.toolNames.has(name)) {
-      return ZS.FEEDBACK.unknownTool(name, [...A.toolNames]);
+      return RL.FEEDBACK.unknownTool(name, [...A.toolNames]);
     }
     // The Roblox MCP REQUIRES datamodel_type on execute_luau (enum Edit/Client/
     // Server). The ###LUA### parser already fills it in, but the model may also
@@ -2561,7 +2561,7 @@ return result`;
       if (p && !refactorState.aiTouched.includes(p)) refactorState.aiTouched.push(p);
     }
     if (r && r.kind === "stopped") return "(stopped by user)";
-    if (!r) return ZS.FEEDBACK.bridgeOffline;
+    if (!r) return RL.FEEDBACK.bridgeOffline;
     // The MCP server answers SUCCESSFULLY (ok:true) when no Studio is attached
     // (Studio closed / no place / MCP option disabled) - with an explanatory
     // text instead of a result. Surface it as a proper environment ERROR so the
@@ -2569,7 +2569,7 @@ return result`;
     if (r.ok && /Unable to find an active Studio instance|previously active Studio has disconnected/i.test(r.text || "")) {
       ui.banner("warn", "Roblox Studio is not connected",
         "Open your place in Roblox Studio and enable the MCP server (Assistant AI → … → Manage MCP Servers → Enable Studio as MCP Server), then try again.");
-      return ZS.FEEDBACK.studioOffline;
+      return RL.FEEDBACK.studioOffline;
     }
     // The Roblox MCP reports missing/invalid required parameters as a SUCCESS
     // whose text is just the complaint (e.g. "datamodel_type is required").
@@ -2620,7 +2620,7 @@ return result`;
       const text = r.text && r.text.length ? r.text : "(tool returned an empty result)";
       return `Output of '${name}':\n${text}`;
     }
-    if (r.kind === "disconnected") return ZS.FEEDBACK.bridgeOffline;
+    if (r.kind === "disconnected") return RL.FEEDBACK.bridgeOffline;
     if (r.kind === "timeout") {
       return `ERROR: tool '${name}' timed out after ${name === "execute_luau" ? 20 : 120}s.\n${r.error}\nTry a shorter/simpler call or check that Roblox Studio is open and responsive.`;
     }
@@ -2784,7 +2784,7 @@ return result`;
             }
             diag("truncated.sendFallback");
             ui.toast("Reply was cut off, resuming…");
-            base = await submitAndGetBase(ZS.FEEDBACK.truncated);
+            base = await submitAndGetBase(RL.FEEDBACK.truncated);
             continue;
           }
           if (res.text) break; // give up resuming; keep what we have as the answer
@@ -2800,18 +2800,18 @@ return result`;
           // stamps on any command-shaped turn once generation ends - the misleading
           // "chip says OK, result says error" state seen live on GLM's truncated
           // execute_blender_code).
-          const failName = ZSParse.toolNameFromText(res.raw || "") || "command";
+          const failName = RLParse.toolNameFromText(res.raw || "") || "command";
           if (res.item) {
             const detail = res.reason === "unclosed" ? "cut off"
               : res.reason === "luaOpener" ? "missing ###LUA###"
               : res.reason === "envelope" ? "bad format"
               : "bad JSON";
-            decorate.toolBox(res.item, failName, "err", detail, true, "", ZS.toolCategory(failName));
+            decorate.toolBox(res.item, failName, "err", detail, true, "", RL.toolCategory(failName));
           }
           // Pass the detected command name so the feedback only offers the
           // ###LUA### block when it actually applies (execute_luau) - never for a
           // truncated/broken execute_blender_code or other JSON-only command.
-          base = await submitAndGetBase(ZS.FEEDBACK.parseError(res.reason, failName));
+          base = await submitAndGetBase(RL.FEEDBACK.parseError(res.reason, failName));
           continue;
         }
         if (res.kind === "text") break; // final answer
@@ -2819,7 +2819,7 @@ return result`;
         if (res.kind === "tool") {
           const calls = res.calls;
           if (calls.length > 1) {
-            base = await submitAndGetBase(ZS.FEEDBACK.multiTool(calls.map((c) => c.tool || "?")));
+            base = await submitAndGetBase(RL.FEEDBACK.multiTool(calls.map((c) => c.tool || "?")));
             continue;
           }
           const call = calls[0];
@@ -2828,7 +2828,7 @@ return result`;
           // even though its name alone wouldn't reveal it. First-ever call of an
           // unknown image tool stays generic here and upgrades at result time below.
           const learnedImg = A.imageTools.has(bareToolName(call.tool));
-          const category = learnedImg ? "screen" : ZS.toolCategory(call.tool);
+          const category = learnedImg ? "screen" : RL.toolCategory(call.tool);
           diag("tool.runCat", { name: call.tool, learnedImg, category });
 
           // Park BEFORE painting the chip / stamping the clock / marking the turn
@@ -2836,7 +2836,7 @@ return result`;
           // that also covers the bootstrap), but parking only there would leave
           // this block's side effects applied for the whole minimize:
           //   - the chip spins "running" while nothing actually runs, and
-          //     elapsedOn(zsToolT0) counts the parked time, so a 20-min minimize
+          //     elapsedOn(rlToolT0) counts the parked time, so a 20-min minimize
           //     renders a bogus "1200.0s" on the call;
           //   - rememberExecuted() would mark the turn dispatched before it ever
           //     ran, so a reload/close while parked loses the command for good -
@@ -2932,7 +2932,7 @@ return result`;
                 ...A.toolList.filter((t) => (t.server || "roblox") === "roblox"),
                 ...localVirtualTools("roblox"),
               ];
-              toSend += ZS.toolsReminder(roblox) + "\n" + ZS.memoryNudge();
+              toSend += RL.toolsReminder(roblox) + "\n" + RL.memoryNudge();
               diag("tools.reminder", { after: REMIND_TOOLS_EVERY });
             }
           }
@@ -3097,7 +3097,7 @@ return result`;
     if (A.toolRunning && A.toolItem) {
       A.toolItem.dataset.zStopped = "1";
       rememberHalted(A.toolItem);
-      decorate.toolBox(A.toolItem, A.toolName, "err", "stopped", true, "", ZS.toolCategory(A.toolName));
+      decorate.toolBox(A.toolItem, A.toolName, "err", "stopped", true, "", RL.toolCategory(A.toolName));
     }
     ui.markStopping();    // instant feedback: button → "⏳ Stopping…", disabled
     P.stopGeneration();
@@ -3149,7 +3149,7 @@ return result`;
         return;
       }
       const access = ui.getAiAccess();
-      const prompt = ZS.buildSystemPrompt({
+      const prompt = RL.buildSystemPrompt({
         siteName: P.displayName,
         customPrompt: ui.getCustomPrompt(),
         allowAiTools: access.tools,
@@ -3232,7 +3232,7 @@ return result`;
     error:   SVG('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
     gear:    SVG('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 11 4.6h.09A1.65 1.65 0 0 0 12 3.09 2 2 0 0 1 16 3v.09A1.65 1.65 0 0 0 19 4.6l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 21.4 11h.1a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.5 1z"/>'),
   };
-  const SPIN = '<span class="zs-spin"></span>';
+  const SPIN = '<span class="rl-spin"></span>';
 
   function iconFor(category, phase) {
     if (phase === "run") return SPIN;
@@ -3252,30 +3252,30 @@ return result`;
   // virtualize (recycle) turn nodes: a node that was a command/result card can
   // be reused to render unrelated text.
   function resetDecoration(item) {
-    const chip = item.querySelector(".zs-chip");
+    const chip = item.querySelector(".rl-chip");
     if (chip) chip.remove();
-    item.classList.remove("zs-hidden");
-    item.querySelectorAll(".zs-tool-hide").forEach((e) => e.classList.remove("zs-tool-hide"));
-    item.querySelectorAll(".zs-cmd-mask").forEach((e) => e.classList.remove("zs-cmd-mask"));
-    delete item.dataset.zs;
+    item.classList.remove("rl-hidden");
+    item.querySelectorAll(".rl-tool-hide").forEach((e) => e.classList.remove("rl-tool-hide"));
+    item.querySelectorAll(".rl-cmd-mask").forEach((e) => e.classList.remove("rl-cmd-mask"));
+    delete item.dataset.rl;
     delete item.dataset.zsig;
     delete item.dataset.zphase;
     delete item.dataset.zStopped;
     delete item.dataset.zRegenLen;
     delete item.dataset.zRegenAt;
-    delete item.__zsChip;
+    delete item.__rlChip;
   }
 
   const decorate = {
     // Core renderer. opts: {label, detail, body, category, phase, cls, whole}
     chip(item, opts) {
       const { label, detail = "", body = "", category = "tool", phase, cls, whole } = opts;
-      let chip = item.querySelector(".zs-chip");
+      let chip = item.querySelector(".rl-chip");
       const hasBody = !!body;
       // While a command streams, the site re-renders the raw block on every token
       // and we get called on nearly every sweep. If what we'd draw is identical,
       // we must NOT rebuild the chip's innerHTML: doing so re-creates the
-      // <span class="zs-spin"> and restarts its CSS animation each time, so the
+      // <span class="rl-spin"> and restarts its CSS animation each time, so the
       // spinner looks frozen / stutters ("retry en rafale"). Rebuild the inner
       // markup ONLY when the rendered content actually changes; otherwise reuse
       // the existing element (and keep its expand/collapse state) so the spinner
@@ -3284,20 +3284,20 @@ return result`;
       if (!chip) chip = document.createElement("div");
       if (chip.dataset.csig !== sig) {
         chip.dataset.csig = sig;
-        chip.className = `zs-chip cat-${category} ${cls || ""}`;
+        chip.className = `rl-chip cat-${category} ${cls || ""}`;
         chip.innerHTML =
-          `<div class="zs-chip-head">` +
-            `<span class="zs-chip-ic">${iconFor(category, phase)}</span>` +
-            `<span class="zs-chip-tx"></span>` +
-            `<span class="zs-chip-dt"></span>` +
-            (hasBody ? `<span class="zs-chip-cv">${SVG('<polyline points="6 9 12 15 18 9"/>')}</span>` : "") +
+          `<div class="rl-chip-head">` +
+            `<span class="rl-chip-ic">${iconFor(category, phase)}</span>` +
+            `<span class="rl-chip-tx"></span>` +
+            `<span class="rl-chip-dt"></span>` +
+            (hasBody ? `<span class="rl-chip-cv">${SVG('<polyline points="6 9 12 15 18 9"/>')}</span>` : "") +
           `</div>` +
-          (hasBody ? `<div class="zs-chip-body"><pre></pre></div>` : "");
-        chip.querySelector(".zs-chip-tx").textContent = label;
-        if (detail) chip.querySelector(".zs-chip-dt").textContent = detail;
+          (hasBody ? `<div class="rl-chip-body"><pre></pre></div>` : "");
+        chip.querySelector(".rl-chip-tx").textContent = label;
+        if (detail) chip.querySelector(".rl-chip-dt").textContent = detail;
         if (hasBody) {
-          chip.querySelector(".zs-chip-body pre").textContent = body;
-          const head = chip.querySelector(".zs-chip-head");
+          chip.querySelector(".rl-chip-body pre").textContent = body;
+          const head = chip.querySelector(".rl-chip-head");
           head.style.cursor = "pointer";
           head.onclick = () => chip.classList.toggle("open");
         }
@@ -3306,10 +3306,10 @@ return result`;
       if (whole) {
         // Fully injected turn (result / sys) → hide the whole item.
         if (chip.parentElement !== item) item.insertBefore(chip, item.firstChild);
-        item.classList.add("zs-hidden");
+        item.classList.add("rl-hidden");
       } else {
-        item.classList.remove("zs-hidden");
-        // findToolBlockSpot ALSO applies the .zs-tool-hide classes (its real job);
+        item.classList.remove("rl-hidden");
+        // findToolBlockSpot ALSO applies the .rl-tool-hide classes (its real job);
         // we call it for that even when we don't use its returned position.
         const spot = P.findToolBlockSpot(item, chip);
         if (P.chipAtItemLevel) {
@@ -3345,20 +3345,20 @@ return result`;
           item.insertBefore(chip, item.firstChild);
         }
       }
-      item.dataset.zs = cls || "1";
+      item.dataset.rl = cls || "1";
       // Remember the exact opts so a chip wiped by a site re-render can be
       // rebuilt identically (see ensureOwnedChip / the chipGone guards).
-      item.__zsChip = { ...opts };
+      item.__rlChip = { ...opts };
       return chip;
     },
 
     // Re-apply a loop-owned chip after a site re-render wiped it (chip removed
-    // and/or the .zs-tool-hide classes stripped). The loop owns the label/phase,
+    // and/or the .rl-tool-hide classes stripped). The loop owns the label/phase,
     // so we rebuild from the stored opts rather than re-running classification.
     ensureOwnedChip(item) {
-      const opts = item.__zsChip;
+      const opts = item.__rlChip;
       if (!opts) return;
-      const chipEl = item.querySelector(".zs-chip");
+      const chipEl = item.querySelector(".rl-chip");
       const chipGone = !chipEl;
       let rawVisible = false;
       if (!opts.whole) {
@@ -3367,17 +3367,17 @@ return result`;
         // (by design) - counting those as "raw block visible" made this
         // rebuild fire on EVERY sweep forever (60Hz spam, seen live).
         rawVisible = [...item.querySelectorAll("pre, p, [class*='code'], .cm-line")].some(
-          (e) => !e.closest(".zs-tool-hide") && !e.closest(".zs-chip") &&
+          (e) => !e.closest(".rl-tool-hide") && !e.closest(".rl-chip") &&
                  !(P.thinkingSel && e.closest(P.thinkingSel)) &&
                  // Some sites (Arena) wrap a code block in a bare outer <pre>
                  // that has no hide class of its own - the real content (and
-                 // the .zs-tool-hide class) live on a child wrapper instead.
+                 // the .rl-tool-hide class) live on a child wrapper instead.
                  // closest() only checks ancestors, so without this the outer
                  // <pre> reads as "raw command visible" FOREVER (its own
                  // textContent includes the hidden child's text), causing an
                  // infinite rebuild loop (~60/s, seen live on Arena).
-                 !e.querySelector(".zs-tool-hide") &&
-                 ZSParse.hasCommandShape(e.textContent || ""));
+                 !e.querySelector(".rl-tool-hide") &&
+                 RLParse.hasCommandShape(e.textContent || ""));
       }
       // A provider opted into `chipAppend` (chip trails the reply text instead
       // of pinning first) has no equivalent of firstChild's immunity to churn:
@@ -3412,7 +3412,7 @@ return result`;
       const cls = phase === "run" ? "run" : phase === "err" ? "err" : phase === "idle" ? "idle" : "done";
       this.chip(item, {
         label: name, detail: detail || "", body: body || "",
-        category: category || ZS.toolCategory(name), phase, cls,
+        category: category || RL.toolCategory(name), phase, cls,
       });
       item.dataset.zphase = phase;
       if (owned) item.dataset.zloop = "1";
@@ -3420,19 +3420,19 @@ return result`;
 
     classify(item, next) {
       if (item.dataset.zloop) { this.ensureOwnedChip(item); return; } // loop owns it
-      const txt = P.classifyText(item, ".zs-chip"); // excludes thinking AND our chip
+      const txt = P.classifyText(item, ".rl-chip"); // excludes thinking AND our chip
 
       // NOTE on the "needs re-apply" guards below: some sites (Gemini/Angular)
       // re-render a turn's CHILDREN on every update - our chip and the
-      // .zs-tool-hide classes are wiped while the dataset flags on the turn
+      // .rl-tool-hide classes are wiped while the dataset flags on the turn
       // element itself survive. So "already decorated" must always be
       // double-checked against the chip actually being present in the DOM.
-      const chipGone = !item.querySelector(".zs-chip");
+      const chipGone = !item.querySelector(".rl-chip");
 
       // 1. System-prompt bootstrap turn → animated while starting, gear when done.
-      if (txt.includes(ZS.SYS_MARKER)) {
+      if (txt.includes(RL.SYS_MARKER)) {
         const phase = A.starting ? "run" : "sys";
-        if (item.dataset.zs !== "sys" || item.dataset.zphase !== phase || chipGone) {
+        if (item.dataset.rl !== "sys" || item.dataset.zphase !== phase || chipGone) {
           this.chip(item, { label: "Starting Up", category: "tool", phase, cls: "sys", whole: true });
           item.dataset.zphase = phase;
         }
@@ -3441,7 +3441,7 @@ return result`;
 
       // 2. Injected result / ERROR / note turns. ALWAYS a user turn we sent,
       //    keyed off our fixed output shapes (never command keywords).
-      if (P.isUserItem(item) && ZSParse.isInjectedFeedback(txt)) {
+      if (P.isUserItem(item) && RLParse.isInjectedFeedback(txt)) {
         const m = txt.match(/Output of '([^']+)'/);
         const isErr = /^\s*ERROR\b/.test(txt);
         // Reload-proof image detection: a feedback carrying an image ends with the
@@ -3450,10 +3450,10 @@ return result`;
         const hasImg = !isErr && IMAGE_FEEDBACK_RE.test(txt);
         if (hasImg && m) rememberImageTool(m[1]);
         const sig = (m ? m[1] : "note") + "|" + (isErr ? "err" : hasImg ? "img" : "result");
-        if (item.dataset.zsig !== sig || !item.classList.contains("zs-hidden") || chipGone) {
+        if (item.dataset.zsig !== sig || !item.classList.contains("rl-hidden") || chipGone) {
           this.chip(item, {
             label: m ? `${m[1]} · result` : "result",
-            category: hasImg ? "screen" : m ? ZS.toolCategory(m[1]) : "tool",
+            category: hasImg ? "screen" : m ? RL.toolCategory(m[1]) : "tool",
             body: txt, phase: isErr ? "err" : "result",
             cls: isErr ? "err" : "result", whole: true,
           });
@@ -3464,16 +3464,16 @@ return result`;
 
       // 2b. FALLBACK for a command turn whose raw tool-call text is no longer
       // readable (e.g. Qwen disposes/never fully renders an off-screen Monaco
-      // code block on a COLD page load - the dataset.zsCode cache only helps
+      // code block on a COLD page load - the dataset.rlCode cache only helps
       // WITHIN a session, since it needs to observe the block live to capture
       // it before disposal; reported live: every past tool-call chip vanished
       // after a page reload, leaving only its "· result" box). The turn's own
       // text no longer "looks like" a command, but the VERY NEXT turn being
       // our injected result (`Output of 'name'`) is definitive proof it WAS
       // one - settle it from that evidence instead of leaving the chip gone.
-      if (P.isAssistantItem(item) && !ZSParse.hasCommandShape(txt) &&
+      if (P.isAssistantItem(item) && !RLParse.hasCommandShape(txt) &&
           next && P.isUserItem(next)) {
-        const nt = P.classifyText(next, ".zs-chip");
+        const nt = P.classifyText(next, ".rl-chip");
         const m = nt.match(/^\s*Output of '([^']+)'/);
         if (m) {
           const isErr = /^\s*ERROR\b/.test(nt);
@@ -3493,7 +3493,7 @@ return result`;
       // asked for. Same principle as domHasZsSignal: a command shape alone is
       // not proof of a session. (Branches 1/2 above key off OUR OWN injected
       // markers, which only exist in real sessions, so they need no gate.)
-      if (P.isAssistantItem(item) && ZSParse.hasCommandShape(txt) &&
+      if (P.isAssistantItem(item) && RLParse.hasCommandShape(txt) &&
           (A.started || A.starting)) {
         // Regenerate transition (see zRegenLen capture in regenResume): the site is
         // still showing the OLD command text after a post-stop regenerate, before it
@@ -3508,7 +3508,7 @@ return result`;
           const replaced = txt.length < baseLen - 8;      // old content wiped
           const expired = Date.now() - armedAt > 6000;    // safety fallback
           if (!replaced && !expired) {
-            const nm = ZSParse.toolNameFromText(txt) || "command";
+            const nm = RLParse.toolNameFromText(txt) || "command";
             this.toolBox(item, nm, "err", "stopped", false);
             return;
           }
@@ -3545,11 +3545,11 @@ return result`;
         // the A.userStopped latch (a fresh user message clears it by design).
         if (stopped && item.dataset.zStopped !== "1") {
           item.dataset.zStopped = "1";
-          diag("chip.rehalt", { name: ZSParse.toolNameFromText(txt) });
+          diag("chip.rehalt", { name: RLParse.toolNameFromText(txt) });
         }
         // The loop already SETTLED this very call (tool finished, we're waiting
         // for the model's next turn) but the site swapped the turn's DOM node,
-        // wiping the chip, the zloop ownership AND the __zsChip opts. Without
+        // wiping the chip, the zloop ownership AND the __rlChip opts. Without
         // this, the fresh node re-classifies as a spinning "run" chip (A.running
         // is still true) on an already-executed call. Re-own it with the settled
         // outcome. The count guard skips this once the model's NEXT turn exists,
@@ -3564,7 +3564,7 @@ return result`;
               ? P.lastAssistantId() === A.toolSettle.id
               : A.toolSettle.count === P.assistantCount()) &&
             item === P.lastAssistant() &&
-            ZSParse.toolNameFromText(txt) === A.toolName) {
+            RLParse.toolNameFromText(txt) === A.toolName) {
           diag("chip.reown", { name: A.toolName, phase: A.toolSettle.phase });
           this.toolBox(item, A.toolName, A.toolSettle.phase, A.toolSettle.detail,
             true, A.toolSettle.body, A.toolSettle.category);
@@ -3585,7 +3585,7 @@ return result`;
         //    below it, so it settles to "done" instead of every old chip re-loading
         //    to a blue spinner (the Arena "all chips restarted loading" report).
         const resultAfter = next && P.isUserItem(next) &&
-          ZSParse.isInjectedFeedback(P.classifyText(next, ".zs-chip"));
+          RLParse.isInjectedFeedback(P.classifyText(next, ".rl-chip"));
         const inFlight = (A.running || A.starting) && !resultAfter;
         // Regenerate grace: keep the freshly-regenerated command turn "run" in the
         // gap between regenResume clearing the stop latch and the watchdog starting
@@ -3642,14 +3642,14 @@ return result`;
         // dropped ownership) re-derives the phase here - from the conversation
         // itself, so it stays correct without any loop state.
         if (phase === "done" && next && P.isUserItem(next)) {
-          const nt = P.classifyText(next, ".zs-chip");
+          const nt = P.classifyText(next, ".rl-chip");
           // feedbackIsError also catches an MCP tool's in-body error (the result
           // reads "Output of '…': Error executing code…", which our ERROR prefix
           // test would miss - the Blender case), so a revisited conversation
           // re-settles it red, matching what the loop painted live.
-          if (ZSParse.isInjectedFeedback(nt) && feedbackIsError(nt)) {
+          if (RLParse.isInjectedFeedback(nt) && feedbackIsError(nt)) {
             phase = "err"; detail = "error";
-            if (item.dataset.zphase !== "err") diag("chip.errSettle", { name: ZSParse.toolNameFromText(txt) });
+            if (item.dataset.zphase !== "err") diag("chip.errSettle", { name: RLParse.toolNameFromText(txt) });
           }
         }
         // A command block that is VISIBLE right now (its hide classes live on
@@ -3661,22 +3661,22 @@ return result`;
         // done→run→done with the generation flicker (seen live as a settled
         // green chip blinking back to a blue spinner).
         const rawVisible = [...item.querySelectorAll("pre, p, [class*='code'], .cm-line")].some(
-          (e) => !e.classList.contains("zs-tool-hide") && !e.closest(".zs-tool-hide") &&
-                 !e.closest(".zs-chip") && !(P.thinkingSel && e.closest(P.thinkingSel)) &&
+          (e) => !e.classList.contains("rl-tool-hide") && !e.closest(".rl-tool-hide") &&
+                 !e.closest(".rl-chip") && !(P.thinkingSel && e.closest(P.thinkingSel)) &&
                  // see ensureOwnedChip's matching guard: a bare outer <pre>
                  // wrapping a hidden child wrapper otherwise reads as visible
                  // forever (Arena code-block markup).
-                 !e.querySelector(".zs-tool-hide") &&
-                 ZSParse.hasCommandShape(e.textContent || ""));
+                 !e.querySelector(".rl-tool-hide") &&
+                 RLParse.hasCommandShape(e.textContent || ""));
         // A tool learned to return images gets the "screen" chip even though its
         // name alone wouldn't reveal it (parity with Roblox screen_capture). The
         // fact can land AFTER this turn first settled (imageTools loads from
         // storage async, or the result turn below is classified later the same
         // pass), so repaint when the current chip's category is stale too - the
         // phase-only guard would otherwise freeze it on the generic wrench.
-        const nm = ZSParse.toolNameFromText(txt);
+        const nm = RLParse.toolNameFromText(txt);
         const cat = A.imageTools.has(bareToolName(nm)) ? "screen" : undefined;
-        const chipNow = item.querySelector(".zs-chip");
+        const chipNow = item.querySelector(".rl-chip");
         const catStale = cat === "screen" && chipNow && !chipNow.classList.contains("cat-screen");
         // Chip drift for chipAppend providers (Kimi): the RUN chip is painted by
         // the SWEEP (owned=false, no zloop) until the loop takes over at
@@ -3731,9 +3731,9 @@ return result`;
         item.dataset.zStopped === "1" ||
         (A.userStopped && item === P.lastAssistant());
       if (haltedTurn && P.isAssistantItem(item) && item.dataset.zphase !== "err"
-          && item.querySelector(".zs-chip")) {
-        const tx = item.querySelector(".zs-chip-tx");
-        const name = ZSParse.toolNameFromText(txt) || (tx && tx.textContent) || "tool";
+          && item.querySelector(".rl-chip")) {
+        const tx = item.querySelector(".rl-chip-tx");
+        const name = RLParse.toolNameFromText(txt) || (tx && tx.textContent) || "tool";
         this.toolBox(item, name, "err", "stopped", false);
         return;
       }
@@ -3741,16 +3741,16 @@ return result`;
       // Transient empty render (Angular swaps a turn's subtree before refilling
       // it): the text vanishes for a frame. Never strip a decorated turn on
       // that - the next sweep re-evaluates it with real content.
-      if (!txt.trim() && (item.dataset.zphase || item.dataset.zs)) return;
+      if (!txt.trim() && (item.dataset.zphase || item.dataset.rl)) return;
 
       // 4. Plain text turn. If this node still wears decoration (a recycled
       //    virtualized node), strip it so we never hide genuine content.
-      if (item.dataset.zs || item.dataset.zphase || item.querySelector(".zs-chip")) {
+      if (item.dataset.rl || item.dataset.zphase || item.querySelector(".rl-chip")) {
         // Tracker: a decorated node re-classified as PLAIN TEXT (virtualized
         // node recycled, or the turn's command text vanished) - its decoration
         // (chip + zStopped marker) is stripped here. If a chip "un-settles"
         // mysteriously, this is the smoking gun to look for.
-        diag("chip.reset", { was: item.dataset.zphase || item.dataset.zs || "chip-only" });
+        diag("chip.reset", { was: item.dataset.zphase || item.dataset.rl || "chip-only" });
         resetDecoration(item);
       }
     },
@@ -3767,11 +3767,11 @@ return result`;
       // left by a Stop would spin forever. zStopped is only ever set on a
       // deliberate halt, so settling any run-phase chip under such a node is
       // safe wherever it lives. Idempotent: skips once at the err phase.
-      for (const chip of document.querySelectorAll(".zs-chip.run")) {
+      for (const chip of document.querySelectorAll(".rl-chip.run")) {
         let item = chip.parentElement;
         while (item && !(item.dataset && item.dataset.zStopped)) item = item.parentElement;
         if (item && item.dataset.zphase !== "err") {
-          const tx = chip.querySelector(".zs-chip-tx");
+          const tx = chip.querySelector(".rl-chip-tx");
           this.toolBox(item, (tx && tx.textContent) || "tool", "err", "stopped", false);
         }
       }
@@ -3795,48 +3795,48 @@ return result`;
 
     function build() {
       root = document.createElement("div");
-      root.id = "zs-root";
+      root.id = "rl-root";
       // One consolidated status bar, anchored just above the site's composer
       // (positioned every frame by placeBar). It carries everything: live status,
       // the primary action (Start / Stop) and a "more"
       // menu (other AI sites, custom prompt, support, Discord). No floating panel,
       // no overlay on the input - the composer stays fully usable for plain chat.
       root.innerHTML = `
-        <div id="zs-bar">
-          <span id="zs-dot" class="off" title=""></span>
-          <span id="zs-brand">RLScript <span class="zs-free">v${EXT_VERSION}</span></span>
-          <span id="zs-state"></span>
-          <button id="zs-action"></button>
-          <button id="zs-stop" hidden>■ Stop</button>
-          <a id="zs-discord" href="https://discord.gg/D5G2HAzX8z" target="_blank" rel="noopener" title="Need help? Join our Discord"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg></a>
-          <button id="zs-switch" aria-label="Switch AI and options" title="Switch AI, custom prompt, support"><span id="zs-switch-name"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
-          <button id="zs-support" aria-label="Support RLScript" title="Support RLScript"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
+        <div id="rl-bar">
+          <span id="rl-dot" class="off" title=""></span>
+          <span id="rl-brand">RLScript <span class="rl-free">v${EXT_VERSION}</span></span>
+          <span id="rl-state"></span>
+          <button id="rl-action"></button>
+          <button id="rl-stop" hidden>■ Stop</button>
+          <a id="rl-discord" href="https://discord.gg/D5G2HAzX8z" target="_blank" rel="noopener" title="Need help? Join our Discord"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg></a>
+          <button id="rl-switch" aria-label="Switch AI and options" title="Switch AI, custom prompt, support"><span id="rl-switch-name"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
+          <button id="rl-support" aria-label="Support RLScript" title="Support RLScript"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
         </div>
-        <div id="zs-menu" hidden></div>
-        ${P.unstableWarning ? `<button id="zs-unstable" aria-label="Provider may be unstable" hidden>⚠ unstable</button>` : ""}
+        <div id="rl-menu" hidden></div>
+        ${P.unstableWarning ? `<button id="rl-unstable" aria-label="Provider may be unstable" hidden>⚠ unstable</button>` : ""}
       `;
       document.documentElement.appendChild(root);
-      bar = root.querySelector("#zs-bar");
-      dot = root.querySelector("#zs-dot");
-      brandEl = root.querySelector("#zs-brand");
-      stateEl = root.querySelector("#zs-state");
-      actionBtn = root.querySelector("#zs-action");
-      stopBtn = root.querySelector("#zs-stop");
-      switchBtn = root.querySelector("#zs-switch");
-      supportBtn = root.querySelector("#zs-support");
-      discordEl = root.querySelector("#zs-discord");
-      const swName = root.querySelector("#zs-switch-name");
+      bar = root.querySelector("#rl-bar");
+      dot = root.querySelector("#rl-dot");
+      brandEl = root.querySelector("#rl-brand");
+      stateEl = root.querySelector("#rl-state");
+      actionBtn = root.querySelector("#rl-action");
+      stopBtn = root.querySelector("#rl-stop");
+      switchBtn = root.querySelector("#rl-switch");
+      supportBtn = root.querySelector("#rl-support");
+      discordEl = root.querySelector("#rl-discord");
+      const swName = root.querySelector("#rl-switch-name");
       if (swName) swName.textContent = P.displayName || P.id;
-      menuEl = root.querySelector("#zs-menu");
-      bar.classList.add(`zs-prov-${P.id}`); // lets CSS tune per-site (e.g. font)
+      menuEl = root.querySelector("#rl-menu");
+      bar.classList.add(`rl-prov-${P.id}`); // lets CSS tune per-site (e.g. font)
       // Provider hook on <html> so overlay.css can tune site-specific CHIP layout
       // (not just the bar). Meta's turn root is full-width with the reply in a
       // nested centered column, so whole-turn chips (result/sys) need re-centering.
-      document.documentElement.classList.add(`zs-site-${P.id}`);
+      document.documentElement.classList.add(`rl-site-${P.id}`);
 
       actionBtn.addEventListener("click", onActionClick);
       stopBtn.addEventListener("click", stopLoop);
-      unstableEl = root.querySelector("#zs-unstable");
+      unstableEl = root.querySelector("#rl-unstable");
       if (unstableEl) {
         // Set the native tooltip via PROPERTY, not the HTML template: the warning
         // text may contain double quotes (e.g. GLM's "No response…"), which would
@@ -3898,9 +3898,9 @@ return result`;
     // startSession can read it synchronously.
     let customPrompt = "";
     try {
-      chrome.storage.local.get("zsCustomPrompt", (r) => {
-        if (r && typeof r.zsCustomPrompt === "string") {
-          customPrompt = r.zsCustomPrompt;
+      chrome.storage.local.get("rlCustomPrompt", (r) => {
+        if (r && typeof r.rlCustomPrompt === "string") {
+          customPrompt = r.rlCustomPrompt;
           syncMenuPrompt();
         }
       });
@@ -3908,7 +3908,7 @@ return result`;
     function getCustomPrompt() { return customPrompt; }
     // User-controlled access gates. They default to enabled for existing
     // installs, persist across pages, and are enforced by runTool immediately.
-    // zsDisabledTools/zsDisabledSkills are the per-item disable lists (arrays of
+    // rlDisabledTools/rlDisabledSkills are the per-item disable lists (arrays of
     // exact tool/skill names) surfaced by the AI access menu's Tools/Skills tabs.
     // The lists themselves live at module scope (runTool reads them); the ui IIFE
     // only loads/persists them.
@@ -3922,13 +3922,13 @@ return result`;
     };
     const refreshMenu = () => { if (!menuEl.hidden) buildMenu(); };
     try {
-      chrome.storage.local.get(["zsAllowAiTools", "zsAllowAiSkills", "zsDisabledTools", "zsDisabledSkills", "zsSyntaxShield", "zsAutoApproveFixes"], (r) => {
-        A.allowAiTools = !r || r.zsAllowAiTools !== false;
-        A.allowAiSkills = !r || r.zsAllowAiSkills !== false;
-        syntaxShieldDefault = !!(r && r.zsSyntaxShield === true);
-        autoApproveFixes = !!(r && r.zsAutoApproveFixes === true);
-        if (r && Array.isArray(r.zsDisabledTools)) disabledTools = r.zsDisabledTools.filter((n) => typeof n === "string");
-        if (r && Array.isArray(r.zsDisabledSkills)) disabledSkills = r.zsDisabledSkills.filter((n) => typeof n === "string");
+      chrome.storage.local.get(["rlAllowAiTools", "rlAllowAiSkills", "rlDisabledTools", "rlDisabledSkills", "rlSyntaxShield", "rlAutoApproveFixes"], (r) => {
+        A.allowAiTools = !r || r.rlAllowAiTools !== false;
+        A.allowAiSkills = !r || r.rlAllowAiSkills !== false;
+        syntaxShieldDefault = !!(r && r.rlSyntaxShield === true);
+        autoApproveFixes = !!(r && r.rlAutoApproveFixes === true);
+        if (r && Array.isArray(r.rlDisabledTools)) disabledTools = r.rlDisabledTools.filter((n) => typeof n === "string");
+        if (r && Array.isArray(r.rlDisabledSkills)) disabledSkills = r.rlDisabledSkills.filter((n) => typeof n === "string");
         refreshToolNames();
         refreshMenu();
       });
@@ -3941,7 +3941,7 @@ return result`;
       if (kind === "skills") A.allowAiSkills = !!enabled;
       refreshToolNames();
       try {
-        chrome.storage.local.set({ zsAllowAiTools: A.allowAiTools, zsAllowAiSkills: A.allowAiSkills });
+        chrome.storage.local.set({ rlAllowAiTools: A.allowAiTools, rlAllowAiSkills: A.allowAiSkills });
       } catch {}
       // If either capability is revoked during an active run, stop before the
       // next command can be dispatched. This also prevents a previously loaded
@@ -3954,19 +3954,19 @@ return result`;
       if (disabled) set.add(String(name).trim()); else set.delete(String(name).trim());
       disabledTools = [...set].filter((n) => !!n);
       refreshToolNames();
-      try { chrome.storage.local.set({ zsDisabledTools: disabledTools }); } catch {}
+      try { chrome.storage.local.set({ rlDisabledTools: disabledTools }); } catch {}
       buildMenu();
     }
     function setSkillDisabled(name, disabled) {
       const set = new Set(disabledSkills);
       if (disabled) set.add(String(name).trim()); else set.delete(String(name).trim());
       disabledSkills = [...set].filter((n) => !!n);
-      try { chrome.storage.local.set({ zsDisabledSkills: disabledSkills }); } catch {}
+      try { chrome.storage.local.set({ rlDisabledSkills: disabledSkills }); } catch {}
       buildMenu();
     }
     // Reflect the saved value back into the menu textarea (unless being edited).
     function syncMenuPrompt() {
-      const ta = root && root.querySelector("#zs-set-text");
+      const ta = root && root.querySelector("#rl-set-text");
       if (ta && document.activeElement !== ta) ta.value = customPrompt;
     }
 
@@ -3983,17 +3983,17 @@ return result`;
     // the bridge is momentarily offline (health shown as unknown).
     let lastKnownServers = [];
     try {
-      chrome.storage.local.get(["zsCustomMcpServers", "zsLastServers"], (r) => {
-        if (r && Array.isArray(r.zsCustomMcpServers)) {
-          customMcpServers = r.zsCustomMcpServers;
+      chrome.storage.local.get(["rlCustomMcpServers", "rlLastServers"], (r) => {
+        if (r && Array.isArray(r.rlCustomMcpServers)) {
+          customMcpServers = r.rlCustomMcpServers;
           if (!menuEl.hidden) buildMenu();
         }
-        if (r && Array.isArray(r.zsLastServers)) lastKnownServers = r.zsLastServers;
+        if (r && Array.isArray(r.rlLastServers)) lastKnownServers = r.rlLastServers;
       });
     } catch {}
     function getCustomMcpServers() { return customMcpServers; }
     function saveCustomMcpServers() {
-      try { chrome.storage.local.set({ zsCustomMcpServers: customMcpServers }); } catch {}
+      try { chrome.storage.local.set({ rlCustomMcpServers: customMcpServers }); } catch {}
     }
     // The bridge (config.json + live health) is the SOURCE OF TRUTH for which
     // addon servers actually exist - chrome.storage.local is just a display-name
@@ -4076,17 +4076,17 @@ return result`;
       for (const s of AI_SITES) {
         const current = s.name.toLowerCase() === here;
         const badge = s.badge
-          ? `<span class="zs-site-rec zs-site-rec-${s.badge === "BEST" ? "best" : "recommended"}">${s.badge}</span>`
+          ? `<span class="rl-site-rec rl-site-rec-${s.badge === "BEST" ? "best" : "recommended"}">${s.badge}</span>`
           : "";
-        const wipTag = s.wip ? `<span class="zs-site-wip">WIP</span>` : "";
-        const label = `<span class="zs-site-name"><span class="zs-site-name-line"><span>${s.name}</span>${badge}${wipTag}</span><span class="zs-site-host">${hostOf(s.url)}</span></span>`;
+        const wipTag = s.wip ? `<span class="rl-site-wip">WIP</span>` : "";
+        const label = `<span class="rl-site-name"><span class="rl-site-name-line"><span>${s.name}</span>${badge}${wipTag}</span><span class="rl-site-host">${hostOf(s.url)}</span></span>`;
         sites += current
-          ? `<div class="zs-site-opt zs-site-here${s.wip ? " zs-site-opt-wip" : ""}">${label}<span class="zs-site-badge">active</span></div>`
-          : `<button class="zs-site-opt${s.wip ? " zs-site-opt-wip" : ""}" data-u="${s.url}">${label}<span class="zs-site-go">&rarr;</span></button>`;
+          ? `<div class="rl-site-opt rl-site-here${s.wip ? " rl-site-opt-wip" : ""}">${label}<span class="rl-site-badge">active</span></div>`
+          : `<button class="rl-site-opt${s.wip ? " rl-site-opt-wip" : ""}" data-u="${s.url}">${label}<span class="rl-site-go">&rarr;</span></button>`;
       }
       let passes = "";
       for (const p of ROBUX_PASSES) {
-        passes += `<button class="zs-tip-opt zs-tip-rbx" data-u="${passUrl(p.id)}"><span class="zs-rbx-cur">R$</span>${p.robux}</button>`;
+        passes += `<button class="rl-tip-opt rl-tip-rbx" data-u="${passUrl(p.id)}"><span class="rl-rbx-cur">R$</span>${p.robux}</button>`;
       }
       const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
       const mergedServers = mergedMcpServers();
@@ -4094,79 +4094,79 @@ return result`;
       // is already the main RLScript dot elsewhere) and no remove button (it's
       // the primary server, protected bridge-side too).
       let mcpList =
-        `<div class="zs-mcp-item zs-mcp-item-primary"><div class="zs-mcp-info"><span class="zs-mcp-name">Roblox Studio</span><span class="zs-mcp-url">primary - always connected</span></div></div>`;
+        `<div class="rl-mcp-item rl-mcp-item-primary"><div class="rl-mcp-info"><span class="rl-mcp-name">Roblox Studio</span><span class="rl-mcp-url">primary - always connected</span></div></div>`;
       mergedServers.forEach((s, i) => {
         // alive === undefined -> the bridge hasn't reported this server's health
         // yet (just added/removed, still restarting) - shown neutral, not red.
         const healthClass = s.alive === true ? "on" : s.alive === false ? "off" : "unknown";
         const healthTitle = s.alive === true ? `${s.tools || 0} tools available` : s.alive === false ? "offline" : "status unknown";
-        mcpList += `<div class="zs-mcp-item"><span class="zs-mcp-health zs-mcp-health-${healthClass}" title="${healthTitle}"></span><div class="zs-mcp-info"><span class="zs-mcp-name">${esc(s.name)}</span><span class="zs-mcp-url">${esc(s.command || s.id)}</span></div><button class="zs-mcp-remove" data-id="${esc(s.id)}" title="Remove">✕</button></div>`;
+        mcpList += `<div class="rl-mcp-item"><span class="rl-mcp-health rl-mcp-health-${healthClass}" title="${healthTitle}"></span><div class="rl-mcp-info"><span class="rl-mcp-name">${esc(s.name)}</span><span class="rl-mcp-url">${esc(s.command || s.id)}</span></div><button class="rl-mcp-remove" data-id="${esc(s.id)}" title="Remove">✕</button></div>`;
       });
       menuEl.innerHTML =
-        `<div class="zs-menu-head"><span class="zs-menu-logo">RLScript</span><span class="zs-menu-tag">v${EXT_VERSION}</span></div>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>Switch AI</span></div>
+        `<div class="rl-menu-head"><span class="rl-menu-logo">RLScript</span><span class="rl-menu-tag">v${EXT_VERSION}</span></div>
+         <section class="rl-menu-sec">
+           <div class="rl-sec-label"><span>Switch AI</span></div>
            ${sites}
          </section>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>AI access</span></div>
-           <div class="zs-menu-note">Master switches for every command and skill, plus per-item toggles under Tools / Skills. Changes are saved for future sessions.</div>
-           <label class="zs-access-row"><input id="zs-allow-tools" type="checkbox" ${A.allowAiTools ? "checked" : ""}><span class="zs-access-copy"><span class="zs-access-title">Allow AI tools</span><span class="zs-access-sub">MCP commands such as read, edit, run, and playtest</span></span></label>
-           <label class="zs-access-row"><input id="zs-allow-skills" type="checkbox" ${A.allowAiSkills ? "checked" : ""}><span class="zs-access-copy"><span class="zs-access-title">Allow AI skills</span><span class="zs-access-sub">RLScript and Roblox Studio skill workflows</span></span></label>
-           <div class="zs-access-tabs">
-             <button id="zs-access-tools-btn" class="zs-access-tab"><span>Tools</span><span class="zs-access-count"></span></button>
-             <button id="zs-access-skills-btn" class="zs-access-tab"><span>Skills</span><span class="zs-access-count"></span></button>
+         <section class="rl-menu-sec">
+           <div class="rl-sec-label"><span>AI access</span></div>
+           <div class="rl-menu-note">Master switches for every command and skill, plus per-item toggles under Tools / Skills. Changes are saved for future sessions.</div>
+           <label class="rl-access-row"><input id="rl-allow-tools" type="checkbox" ${A.allowAiTools ? "checked" : ""}><span class="rl-access-copy"><span class="rl-access-title">Allow AI tools</span><span class="rl-access-sub">MCP commands such as read, edit, run, and playtest</span></span></label>
+           <label class="rl-access-row"><input id="rl-allow-skills" type="checkbox" ${A.allowAiSkills ? "checked" : ""}><span class="rl-access-copy"><span class="rl-access-title">Allow AI skills</span><span class="rl-access-sub">RLScript and Roblox Studio skill workflows</span></span></label>
+           <div class="rl-access-tabs">
+             <button id="rl-access-tools-btn" class="rl-access-tab"><span>Tools</span><span class="rl-access-count"></span></button>
+             <button id="rl-access-skills-btn" class="rl-access-tab"><span>Skills</span><span class="rl-access-count"></span></button>
            </div>
-           <div id="zs-access-panel-tools" class="zs-access-panel" hidden></div>
-           <div id="zs-access-panel-skills" class="zs-access-panel" hidden></div>
+           <div id="rl-access-panel-tools" class="rl-access-panel" hidden></div>
+           <div id="rl-access-panel-skills" class="rl-access-panel" hidden></div>
          </section>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>Refactor</span></div>
-           <div class="zs-menu-note">Scans every script for refactors (deprecated APIs, tween loops, Instance.new, math.random, indentation…) and applies only the ones you select. The AI's fixes land here too - nothing is written until you click Apply, unless Auto-approve is on.</div>
-           <label class="zs-access-row"><input id="zs-ref-auto" type="checkbox" ${autoApproveFixes ? "checked" : ""}><span class="zs-access-copy"><span class="zs-access-title">Auto-approve fixes</span><span class="zs-access-sub">Let the AI apply fix_script changes immediately (Studio undo still works)</span></span></label>
-           <div class="zs-ref-row"><input id="zs-ref-scope" class="zs-mcp-field" value="game" placeholder="Scan scope, e.g. game" /><button id="zs-ref-scan" class="zs-ref-btn">Scan</button></div>
-           <div id="zs-ref-status" class="zs-menu-note"></div>
-           <div id="zs-ref-list" class="zs-ref-list"></div>
-           <div class="zs-ref-row zs-ref-actions"><button id="zs-ref-apply">Apply selected</button><button id="zs-ref-undo">Undo last</button></div>
+         <section class="rl-menu-sec">
+           <div class="rl-sec-label"><span>Refactor</span></div>
+           <div class="rl-menu-note">Scans every script for refactors (deprecated APIs, tween loops, Instance.new, math.random, indentation…) and applies only the ones you select. The AI's fixes land here too - nothing is written until you click Apply, unless Auto-approve is on.</div>
+           <label class="rl-access-row"><input id="rl-ref-auto" type="checkbox" ${autoApproveFixes ? "checked" : ""}><span class="rl-access-copy"><span class="rl-access-title">Auto-approve fixes</span><span class="rl-access-sub">Let the AI apply fix_script changes immediately (Studio undo still works)</span></span></label>
+           <div class="rl-ref-row"><input id="rl-ref-scope" class="rl-mcp-field" value="game" placeholder="Scan scope, e.g. game" /><button id="rl-ref-scan" class="rl-ref-btn">Scan</button></div>
+           <div id="rl-ref-status" class="rl-menu-note"></div>
+           <div id="rl-ref-list" class="rl-ref-list"></div>
+           <div class="rl-ref-row rl-ref-actions"><button id="rl-ref-apply">Apply selected</button><button id="rl-ref-undo">Undo last</button></div>
          </section>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>Free Support</span></div>
-           <button class="zs-tip-opt zs-tip-star" data-u="${GITHUB_URL}"><span>Star on GitHub</span><span class="zs-tip-sub">free, helps a lot</span></button>
-           ${WORKINK_URL ? `<button class="zs-tip-opt zs-tip-ad" data-u="${WORKINK_URL}"><span>Watch an ad to support</span><span class="zs-tip-sub">free, takes a minute</span></button>` : ""}
+         <section class="rl-menu-sec">
+           <div class="rl-sec-label"><span>Free Support</span></div>
+           <button class="rl-tip-opt rl-tip-star" data-u="${GITHUB_URL}"><span>Star on GitHub</span><span class="rl-tip-sub">free, helps a lot</span></button>
+           ${WORKINK_URL ? `<button class="rl-tip-opt rl-tip-ad" data-u="${WORKINK_URL}"><span>Watch an ad to support</span><span class="rl-tip-sub">free, takes a minute</span></button>` : ""}
          </section>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>Support in Robux</span></div>
-           <div class="zs-rbx-grid">${passes}</div>
+         <section class="rl-menu-sec">
+           <div class="rl-sec-label"><span>Support in Robux</span></div>
+           <div class="rl-rbx-grid">${passes}</div>
          </section>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>Custom prompt</span></div>
-           <div class="zs-menu-note">Added below the system prompt on every new session. The built-in prompt can't be edited.</div>
-           <textarea id="zs-set-text" rows="4" placeholder="e.g. Always comment your Luau code. Prefer small modular scripts."></textarea>
-           <div class="zs-set-row"><button id="zs-set-save">Save</button><span id="zs-set-status"></span></div>
+         <section class="rl-menu-sec">
+           <div class="rl-sec-label"><span>Custom prompt</span></div>
+           <div class="rl-menu-note">Added below the system prompt on every new session. The built-in prompt can't be edited.</div>
+           <textarea id="rl-set-text" rows="4" placeholder="e.g. Always comment your Luau code. Prefer small modular scripts."></textarea>
+           <div class="rl-set-row"><button id="rl-set-save">Save</button><span id="rl-set-status"></span></div>
          </section>
-          <section class="zs-menu-sec">
-            <div class="zs-sec-label"><span>MCP servers</span></div>
-            <div class="zs-menu-note">Roblox Studio is always connected (primary). Blender and GitHub are no longer pre-installed - add them below with one click (removable anytime).</div>
+          <section class="rl-menu-sec">
+            <div class="rl-sec-label"><span>MCP servers</span></div>
+            <div class="rl-menu-note">Roblox Studio is always connected (primary). Blender and GitHub are no longer pre-installed - add them below with one click (removable anytime).</div>
             ${mcpList}
-            <div class="zs-set-row zs-mcp-presets">
-              <button type="button" class="zs-mcp-preset" data-name="Blender" data-command="npx -y blender-mcp">＋ Add Blender MCP</button>
-              <button type="button" class="zs-mcp-preset" data-name="GitHub" data-command="npx -y @modelcontextprotocol/server-github" data-env="GITHUB_PERSONAL_ACCESS_TOKEN">＋ Add GitHub MCP</button>
+            <div class="rl-set-row rl-mcp-presets">
+              <button type="button" class="rl-mcp-preset" data-name="Blender" data-command="npx -y blender-mcp">＋ Add Blender MCP</button>
+              <button type="button" class="rl-mcp-preset" data-name="GitHub" data-command="npx -y @modelcontextprotocol/server-github" data-env="GITHUB_PERSONAL_ACCESS_TOKEN">＋ Add GitHub MCP</button>
             </div>
-            <div class="zs-mcp-sep"></div>
-            <input id="zs-mcp-name" class="zs-mcp-field" placeholder="Name, e.g. Sketchfab" />
-            <input id="zs-mcp-url" class="zs-mcp-field" placeholder="Start command, e.g. npx -y @some/mcp-server" />
-             <div class="zs-set-row"><button id="zs-mcp-add">Add server</button><span id="zs-mcp-status"></span></div>
+            <div class="rl-mcp-sep"></div>
+            <input id="rl-mcp-name" class="rl-mcp-field" placeholder="Name, e.g. Sketchfab" />
+            <input id="rl-mcp-url" class="rl-mcp-field" placeholder="Start command, e.g. npx -y @some/mcp-server" />
+             <div class="rl-set-row"><button id="rl-mcp-add">Add server</button><span id="rl-mcp-status"></span></div>
           </section>
-          <section class="zs-menu-sec">
-            <div class="zs-sec-label"><span>Updates</span></div>
-            <div class="zs-menu-note">Running <b>v${extVersion()}</b>. The extension checks GitHub itself (no bridge needed) and flags a new build with a badge + toast; the bridge additionally downloads and installs the update when you run it. You can also check right now:</div>
-            <div class="zs-upd-row"><button id="zs-update-check">Check for updates</button><span id="zs-update-status"></span></div>
+          <section class="rl-menu-sec">
+            <div class="rl-sec-label"><span>Updates</span></div>
+            <div class="rl-menu-note">Running <b>v${extVersion()}</b>. The extension checks GitHub itself (no bridge needed) and flags a new build with a badge + toast; the bridge additionally downloads and installs the update when you run it. You can also check right now:</div>
+            <div class="rl-upd-row"><button id="rl-update-check">Check for updates</button><span id="rl-update-status"></span></div>
           </section>`;
       const open = (url) => { try { window.open(url, "_blank", "noopener"); } catch {} menuEl.hidden = true; };
-      menuEl.querySelectorAll("button.zs-site-opt, .zs-tip-opt").forEach((b) =>
+      menuEl.querySelectorAll("button.rl-site-opt, .rl-tip-opt").forEach((b) =>
         b.addEventListener("click", () => open(b.dataset.u)));
-      const allowToolsEl = menuEl.querySelector("#zs-allow-tools");
-      const allowSkillsEl = menuEl.querySelector("#zs-allow-skills");
+      const allowToolsEl = menuEl.querySelector("#rl-allow-tools");
+      const allowSkillsEl = menuEl.querySelector("#rl-allow-skills");
       allowToolsEl.addEventListener("change", () => setAiAccess("tools", allowToolsEl.checked));
       allowSkillsEl.addEventListener("change", () => setAiAccess("skills", allowSkillsEl.checked));
       // Per-item access panels: the Tools and Skills tabs list every available
@@ -4179,30 +4179,30 @@ return result`;
         ...LOCAL_VIRTUAL_TOOLS.map((t) => t.name),
       ])].sort();
       const allAccessSkills = [...new Set([
-        ...Object.keys(ZS.BUILTIN_SKILLS || {}),
-        ...Object.keys(ZS.NATIVE_SKILLS || {}),
+        ...Object.keys(RL.BUILTIN_SKILLS || {}),
+        ...Object.keys(RL.NATIVE_SKILLS || {}),
       ])].sort();
       const accessTabs = [
-        { btnId: "zs-access-tools-btn", panelId: "zs-access-panel-tools", items: allAccessTools, disabled: () => disabledTools, setter: setToolDisabled },
-        { btnId: "zs-access-skills-btn", panelId: "zs-access-panel-skills", items: allAccessSkills, disabled: () => disabledSkills, setter: setSkillDisabled },
+        { btnId: "rl-access-tools-btn", panelId: "rl-access-panel-tools", items: allAccessTools, disabled: () => disabledTools, setter: setToolDisabled },
+        { btnId: "rl-access-skills-btn", panelId: "rl-access-panel-skills", items: allAccessSkills, disabled: () => disabledSkills, setter: setSkillDisabled },
       ];
       for (const tab of accessTabs) {
         const btn = menuEl.querySelector("#" + tab.btnId);
         const panel = menuEl.querySelector("#" + tab.panelId);
         const disabledSet = tab.disabled();
         const refreshCount = () => {
-          const badge = btn.querySelector(".zs-access-count");
+          const badge = btn.querySelector(".rl-access-count");
           const enabledCount = tab.items.length - disabledSet.length;
           badge.textContent = String(enabledCount);
-          badge.classList.toggle("zs-access-count-zero", enabledCount === 0);
-          btn.classList.toggle("zs-tab-partial", disabledSet.length > 0 && disabledSet.length < tab.items.length);
+          badge.classList.toggle("rl-access-count-zero", enabledCount === 0);
+          btn.classList.toggle("rl-tab-partial", disabledSet.length > 0 && disabledSet.length < tab.items.length);
         };
         const renderPanel = () => {
           const rows = tab.items.map((name, idx) => {
             const isOff = disabledSet.includes(name);
-            return `<label class="zs-access-row zs-access-row-item"><input type="checkbox" data-tidx="${idx}" ${isOff ? "" : "checked"}><span class="zs-access-copy"><span class="zs-access-title">${esc(name)}</span></span></label>`;
+            return `<label class="rl-access-row rl-access-row-item"><input type="checkbox" data-tidx="${idx}" ${isOff ? "" : "checked"}><span class="rl-access-copy"><span class="rl-access-title">${esc(name)}</span></span></label>`;
           }).join("");
-          panel.innerHTML = rows || `<div class="zs-menu-note">Nothing to list.</div>`;
+          panel.innerHTML = rows || `<div class="rl-menu-note">Nothing to list.</div>`;
           panel.querySelectorAll("input[type=checkbox]").forEach((cb) => {
             cb.addEventListener("change", () => {
               tab.setter(tab.items[Number(cb.dataset.tidx)], cb.checked);
@@ -4215,10 +4215,10 @@ return result`;
             const otherBtn = menuEl.querySelector("#" + other.btnId);
             const otherPanel = menuEl.querySelector("#" + other.panelId);
             otherPanel.hidden = true;
-            otherBtn.classList.remove("zs-tab-active");
+            otherBtn.classList.remove("rl-tab-active");
           }
           panel.hidden = !open;
-          btn.classList.toggle("zs-tab-active", open);
+          btn.classList.toggle("rl-tab-active", open);
           accessPanelOpen.set(open ? tab.btnId : null);
           if (open) renderPanel();
         });
@@ -4232,23 +4232,23 @@ return result`;
       const reopened = accessTabs.find((t) => t.btnId === accessPanelOpen.get());
       if (reopened) {
         reopened.panelEl.hidden = false;
-        reopened.btnEl.classList.add("zs-tab-active");
+        reopened.btnEl.classList.add("rl-tab-active");
         reopened.renderPanel();
       }
-      const ta = menuEl.querySelector("#zs-set-text");
-      const saveBtn = menuEl.querySelector("#zs-set-save");
-      const status = menuEl.querySelector("#zs-set-status");
+      const ta = menuEl.querySelector("#rl-set-text");
+      const saveBtn = menuEl.querySelector("#rl-set-save");
+      const status = menuEl.querySelector("#rl-set-status");
       ta.value = customPrompt;
       saveBtn.addEventListener("click", () => {
         customPrompt = ta.value;
-        try { chrome.storage.local.set({ zsCustomPrompt: customPrompt }); } catch {}
+        try { chrome.storage.local.set({ rlCustomPrompt: customPrompt }); } catch {}
         status.textContent = "Saved ✓";
         setTimeout(() => { status.textContent = ""; }, 1600);
       });
-      const mcpNameEl = menuEl.querySelector("#zs-mcp-name");
-      const mcpUrlEl = menuEl.querySelector("#zs-mcp-url");
-      const mcpStatus = menuEl.querySelector("#zs-mcp-status");
-      const mcpAddBtn = menuEl.querySelector("#zs-mcp-add");
+      const mcpNameEl = menuEl.querySelector("#rl-mcp-name");
+      const mcpUrlEl = menuEl.querySelector("#rl-mcp-url");
+      const mcpStatus = menuEl.querySelector("#rl-mcp-status");
+      const mcpAddBtn = menuEl.querySelector("#rl-mcp-add");
       // Disable every add/remove control and show the restart spinner. Adding or
       // removing a server rewrites config.json and restarts the whole bridge, so
       // no other server edit may run until it is back.
@@ -4256,10 +4256,10 @@ return result`;
       function setMcpBusy(on, label) {
         mcpBusy = on;
         mcpAddBtn.disabled = on;
-        menuEl.querySelectorAll(".zs-mcp-remove").forEach((b) => (b.disabled = on));
-        menuEl.querySelectorAll(".zs-mcp-preset").forEach((b) => (b.disabled = on));
+        menuEl.querySelectorAll(".rl-mcp-remove").forEach((b) => (b.disabled = on));
+        menuEl.querySelectorAll(".rl-mcp-preset").forEach((b) => (b.disabled = on));
         mcpStatus.innerHTML = on
-          ? `<span class="zs-mcp-spin-row"><span class="zs-mcp-spin"></span>${label || "Restarting bridge…"}</span>`
+          ? `<span class="rl-mcp-spin-row"><span class="rl-mcp-spin"></span>${label || "Restarting bridge…"}</span>`
           : "";
       }
       // Shared add path: the manual form and the Blender/GitHub one-click
@@ -4276,8 +4276,14 @@ return result`;
         const r = await bg({ type: "add_server", server_id: id, command, args, env });
         if (!r || !r.ok) {
           setMcpBusy(false);
-          mcpStatus.textContent = (r && r.error) || `Couldn't add ${name}`;
-          setTimeout(() => { if (!mcpBusy) mcpStatus.textContent = ""; }, 2400);
+          // Adding a server requires the bridge (it owns config.json): a
+          // disconnected background/socket means start.bat isn't running.
+          const offline = r && (r.kind === "disconnected" || /bridge/i.test(r.error || ""));
+          mcpStatus.textContent = offline
+            ? "Bridge offline - run start.bat first, then click again"
+            : (r && r.error) || `Couldn't add ${name}`;
+          mcpStatus.className = "mcp-err";
+          setTimeout(() => { if (!mcpBusy) { mcpStatus.textContent = ""; mcpStatus.className = ""; } }, 5000);
           return;
         }
         customMcpServers.push({ id, name, command });
@@ -4286,7 +4292,7 @@ return result`;
         buildMenu(); // rebuilds with the new server listed + spinner cleared
       }
 
-      menuEl.querySelectorAll(".zs-mcp-remove").forEach((b) =>
+      menuEl.querySelectorAll(".rl-mcp-remove").forEach((b) =>
         b.addEventListener("click", async () => {
           if (mcpBusy) return;
           const id = b.dataset.id;
@@ -4321,7 +4327,7 @@ return result`;
       // One-click presets: Blender and GitHub used to ship pre-configured in
       // the bridge's config; they now live here as opt-in addons, so each one
       // can be added AND removed from the section above like any addon server.
-      menuEl.querySelectorAll(".zs-mcp-preset").forEach((b) =>
+      menuEl.querySelectorAll(".rl-mcp-preset").forEach((b) =>
         b.addEventListener("click", () => {
           if (mcpBusy) return;
           const name = b.dataset.name;
@@ -4331,8 +4337,8 @@ return result`;
         }));
 
       // ── Updates section: manual check (bridge if up, extension alone else) ──
-      const updBtn = menuEl.querySelector("#zs-update-check");
-      const updStatus = menuEl.querySelector("#zs-update-status");
+      const updBtn = menuEl.querySelector("#rl-update-check");
+      const updStatus = menuEl.querySelector("#rl-update-status");
       if (updBtn) updBtn.addEventListener("click", async () => {
         updBtn.disabled = true;
         updStatus.textContent = "Checking…";
@@ -4346,7 +4352,7 @@ return result`;
             if (r.status === "up_to_date") toast("You are up to date.");
             if (r.status === "update_available") {
               toast(`RLScript update available (build ${r.build}).`);
-              if (r.downloadUrl) bg({ type: "zs-download", url: r.downloadUrl });
+              if (r.downloadUrl) bg({ type: "rl-download", url: r.downloadUrl });
             }
           }
         } finally {
@@ -4356,16 +4362,16 @@ return result`;
       });
 
       // ── Refactor section: scan / apply selected / undo / auto-approve ────
-      const refAutoEl = menuEl.querySelector("#zs-ref-auto");
+      const refAutoEl = menuEl.querySelector("#rl-ref-auto");
       if (refAutoEl) refAutoEl.addEventListener("change", () => {
         autoApproveFixes = refAutoEl.checked;
-        try { chrome.storage.local.set({ zsAutoApproveFixes: autoApproveFixes }); } catch {}
+        try { chrome.storage.local.set({ rlAutoApproveFixes: autoApproveFixes }); } catch {}
       });
-      const refScopeEl = menuEl.querySelector("#zs-ref-scope");
-      const refStatusEl = menuEl.querySelector("#zs-ref-status");
-      const refScanBtn = menuEl.querySelector("#zs-ref-scan");
-      const refApplyBtn = menuEl.querySelector("#zs-ref-apply");
-      const refUndoBtn = menuEl.querySelector("#zs-ref-undo");
+      const refScopeEl = menuEl.querySelector("#rl-ref-scope");
+      const refStatusEl = menuEl.querySelector("#rl-ref-status");
+      const refScanBtn = menuEl.querySelector("#rl-ref-scan");
+      const refApplyBtn = menuEl.querySelector("#rl-ref-apply");
+      const refUndoBtn = menuEl.querySelector("#rl-ref-undo");
       if (refScanBtn) refScanBtn.addEventListener("click", async () => {
         const scope = ((refScopeEl && refScopeEl.value) || "game").trim().slice(0, 200) || "game";
         if (refStatusEl) refStatusEl.textContent = "Scanning " + scope + "…";
@@ -4405,11 +4411,11 @@ return result`;
     // Applying from the toast changes ONLY that refactor in that script - the
     // same engine "apply" path the Refactor section's Apply selected uses.
     function renderRefactorSection() {
-      const listEl = menuEl && menuEl.querySelector("#zs-ref-list");
+      const listEl = menuEl && menuEl.querySelector("#rl-ref-list");
       if (listEl) {
         const items = refactorState.items;
         if (!items.length) {
-          listEl.innerHTML = `<div class="zs-ref-list-head">ISSUES FOUND: <b>0</b></div><div class="zs-menu-note">No issues found yet. Run a scan above, or ask the AI to work on your scripts - findings appear here as a list with a tick per refactor; tick the ones you want and press Apply selected. You never have to wait for a notification - the list is always here.</div>`;
+          listEl.innerHTML = `<div class="rl-ref-list-head">ISSUES FOUND: <b>0</b></div><div class="rl-menu-note">No issues found yet. Run a scan above, or ask the AI to work on your scripts - findings appear here as a list with a tick per refactor; tick the ones you want and press Apply selected. You never have to wait for a notification - the list is always here.</div>`;
         } else {
           const pending = items.filter((i) => i.status === "pending").length;
           const groups = new Map();
@@ -4420,16 +4426,16 @@ return result`;
             g.lines.push(it);
             if (it.status === "applied") g.status = "applied";
           }
-          let html = `<div class="zs-ref-list-head">ISSUES FOUND: <b>${items.length}</b> <span class="zs-ref-pending">${pending} awaiting approval - tick to enable, untick to skip, then Apply selected</span></div>`;
+          let html = `<div class="rl-ref-list-head">ISSUES FOUND: <b>${items.length}</b> <span class="rl-ref-pending">${pending} awaiting approval - tick to enable, untick to skip, then Apply selected</span></div>`;
           let curScript = null;
           for (const [gk, g] of groups) {
-            if (g.script !== curScript) { curScript = g.script; html += `<div class="zs-ref-script">${escHtml(curScript)}</div>`; }
+            if (g.script !== curScript) { curScript = g.script; html += `<div class="rl-ref-script">${escHtml(curScript)}</div>`; }
             const checked = g.status === "applied" || refSel.has(gk);
             const preview = g.lines.slice(0, 2).map((l) =>
-              `<div class="zs-ref-prev">L${escHtml(l.line)}: <span class="zs-ref-del">${escHtml(String(l.before || "").slice(0, 90)) || "(new line)"}</span> → <span class="zs-ref-add">${escHtml(String(l.after || "").slice(0, 90)) || "(removed)"}</span></div>`).join("");
-            const more = g.lines.length > 2 ? `<div class="zs-ref-more">+${g.lines.length - 2} more edit(s) in this refactor</div>` : "";
-            html += `<div class="zs-ref-group${g.status === "applied" ? " zs-ref-applied" : ""}">
-              <label class="zs-access-row zs-access-row-item"><input type="checkbox" data-gk="${escHtml(gk)}" ${checked ? "checked" : ""} ${g.status === "applied" ? "disabled" : ""}><span class="zs-access-copy"><span class="zs-access-title">${escHtml(g.rule)}</span><span class="zs-access-sub">${escHtml(g.message)}</span></span></label>
+              `<div class="rl-ref-prev">L${escHtml(l.line)}: <span class="rl-ref-del">${escHtml(String(l.before || "").slice(0, 90)) || "(new line)"}</span> → <span class="rl-ref-add">${escHtml(String(l.after || "").slice(0, 90)) || "(removed)"}</span></div>`).join("");
+            const more = g.lines.length > 2 ? `<div class="rl-ref-more">+${g.lines.length - 2} more edit(s) in this refactor</div>` : "";
+            html += `<div class="rl-ref-group${g.status === "applied" ? " rl-ref-applied" : ""}">
+              <label class="rl-access-row rl-access-row-item"><input type="checkbox" data-gk="${escHtml(gk)}" ${checked ? "checked" : ""} ${g.status === "applied" ? "disabled" : ""}><span class="rl-access-copy"><span class="rl-access-title">${escHtml(g.rule)}</span><span class="rl-access-sub">${escHtml(g.message)}</span></span></label>
               ${preview}${more}</div>`;
           }
           listEl.innerHTML = html;
@@ -4445,26 +4451,26 @@ return result`;
     function ensureRefactorToast() {
       if (refToast || !root) return refToast;
       refToast = document.createElement("div");
-      refToast.id = "zs-ref-toast";
+      refToast.id = "rl-ref-toast";
       refToast.hidden = true;
       refToast.innerHTML = `
-        <div class="zs-ref-toast-head">
-          <span class="zs-ref-toast-title">Refactors available <b id="zs-ref-toast-count"></b></span>
-          <span class="zs-ref-toast-acts">
-            <button id="zs-ref-toast-applyall">Apply all</button>
-            <button id="zs-ref-toast-dismissall">Dismiss all</button>
-            <button id="zs-ref-toast-close" title="Close">✕</button>
+        <div class="rl-ref-toast-head">
+          <span class="rl-ref-toast-title">Refactors available <b id="rl-ref-toast-count"></b></span>
+          <span class="rl-ref-toast-acts">
+            <button id="rl-ref-toast-applyall">Apply all</button>
+            <button id="rl-ref-toast-dismissall">Dismiss all</button>
+            <button id="rl-ref-toast-close" title="Close">✕</button>
           </span>
         </div>
-        <div id="zs-ref-toast-body"></div>`;
+        <div id="rl-ref-toast-body"></div>`;
       root.appendChild(refToast);
-      refToast.querySelector("#zs-ref-toast-close").addEventListener("click", () => { refToast.hidden = true; });
-      refToast.querySelector("#zs-ref-toast-applyall").addEventListener("click", async () => {
+      refToast.querySelector("#rl-ref-toast-close").addEventListener("click", () => { refToast.hidden = true; });
+      refToast.querySelector("#rl-ref-toast-applyall").addEventListener("click", async () => {
         const pending = refactorState.items.filter((i) => i.status === "pending");
         await refactorApply(pending);
         renderRefactorToast();
       });
-      refToast.querySelector("#zs-ref-toast-dismissall").addEventListener("click", () => {
+      refToast.querySelector("#rl-ref-toast-dismissall").addEventListener("click", () => {
         const keys = new Set(refactorState.items.filter((i) => i.status === "pending").map((i) => i.key));
         refactorState.items = refactorState.items.filter((i) => !keys.has(i.key));
         renderRefactorToast();
@@ -4475,10 +4481,10 @@ return result`;
       const t = ensureRefactorToast();
       if (!t) return;
       const pending = refactorState.items.filter((i) => i.status === "pending");
-      const body = t.querySelector("#zs-ref-toast-body");
+      const body = t.querySelector("#rl-ref-toast-body");
       if (!pending.length) { t.hidden = true; body.innerHTML = ""; return; }
       t.hidden = false;
-      t.querySelector("#zs-ref-toast-count").textContent = String(pending.length);
+      t.querySelector("#rl-ref-toast-count").textContent = String(pending.length);
       const groups = new Map();
       for (const it of pending) {
         const gk = it.script + "|" + it.group;
@@ -4487,25 +4493,25 @@ return result`;
         g.lines++;
       }
       body.innerHTML = [...groups.entries()].map(([gk, g]) => `
-        <div class="zs-ref-toast-item" data-gk="${escHtml(gk)}">
-          <div class="zs-ref-toast-main">
-            <span class="zs-ref-rule">${escHtml(g.rule)}</span>
-            <span class="zs-ref-msg">${escHtml(g.message)}${g.lines > 1 ? ` <span class="zs-ref-cnt">×${g.lines}</span>` : ""}</span>
-            <span class="zs-ref-script">${escHtml(g.script)}</span>
+        <div class="rl-ref-toast-item" data-gk="${escHtml(gk)}">
+          <div class="rl-ref-toast-main">
+            <span class="rl-ref-rule">${escHtml(g.rule)}</span>
+            <span class="rl-ref-msg">${escHtml(g.message)}${g.lines > 1 ? ` <span class="rl-ref-cnt">×${g.lines}</span>` : ""}</span>
+            <span class="rl-ref-script">${escHtml(g.script)}</span>
           </div>
-          <span class="zs-ref-toast-item-acts">
-            <button class="zs-ref-toast-go">Apply</button>
-            <button class="zs-ref-toast-x">Dismiss</button>
+          <span class="rl-ref-toast-item-acts">
+            <button class="rl-ref-toast-go">Apply</button>
+            <button class="rl-ref-toast-x">Dismiss</button>
           </span>
         </div>`).join("");
-      body.querySelectorAll(".zs-ref-toast-go").forEach((b) => b.addEventListener("click", async () => {
-        const gk = b.closest(".zs-ref-toast-item").dataset.gk;
+      body.querySelectorAll(".rl-ref-toast-go").forEach((b) => b.addEventListener("click", async () => {
+        const gk = b.closest(".rl-ref-toast-item").dataset.gk;
         const its = refactorState.items.filter((i) => i.status === "pending" && i.script + "|" + i.group === gk);
         await refactorApply(its);
         renderRefactorToast();
       }));
-      body.querySelectorAll(".zs-ref-toast-x").forEach((b) => b.addEventListener("click", () => {
-        const gk = b.closest(".zs-ref-toast-item").dataset.gk;
+      body.querySelectorAll(".rl-ref-toast-x").forEach((b) => b.addEventListener("click", () => {
+        const gk = b.closest(".rl-ref-toast-item").dataset.gk;
         const keys = new Set(refactorState.items.filter((i) => i.script + "|" + i.group === gk).map((i) => i.key));
         refactorState.items = refactorState.items.filter((i) => !keys.has(i.key));
         renderRefactorToast();
@@ -4516,47 +4522,47 @@ return result`;
     // ── First-time onboarding card (bridge missing) ─────────────────────────
     let setupCard = null, setupSeen = false, setupRaf = null;
     try {
-      chrome.storage.local.get("zsSetupSeen", (r) => {
-        if (r && r.zsSetupSeen) setupSeen = true;
+      chrome.storage.local.get("rlSetupSeen", (r) => {
+        if (r && r.rlSetupSeen) setupSeen = true;
       });
     } catch {}
 
     function buildSetup() {
       setupCard = document.createElement("div");
-      setupCard.id = "zs-setup";
+      setupCard.id = "rl-setup";
       setupCard.hidden = true;
       const videoBtn = VIDEO_URL
-        ? `<a id="zs-setup-video" href="${VIDEO_URL}" target="_blank" rel="noopener">▶ Watch tutorial</a>`
+        ? `<a id="rl-setup-video" href="${VIDEO_URL}" target="_blank" rel="noopener">▶ Watch tutorial</a>`
         : "";
       setupCard.innerHTML =
-        `<div id="zs-setup-head"><span id="zs-setup-logo">RLScript</span><span id="zs-setup-tag">Setup</span></div>` +
-        `<div id="zs-setup-sub">The <b>Bridge</b> is what connects this chat to Roblox Studio. Three steps and you're running.</div>` +
-        `<ol id="zs-setup-steps">` +
+        `<div id="rl-setup-head"><span id="rl-setup-logo">RLScript</span><span id="rl-setup-tag">Setup</span></div>` +
+        `<div id="rl-setup-sub">The <b>Bridge</b> is what connects this chat to Roblox Studio. Three steps and you're running.</div>` +
+        `<ol id="rl-setup-steps">` +
           `<li>Download the Bridge from GitHub</li>` +
           `<li>Run <code>start.bat</code></li>` +
           `<li>Back here, click <b>Start Roblox agent</b></li>` +
         `</ol>` +
-        `<div class="zs-setup-copy-row">` +
-          `<input type="text" id="zs-setup-link" readonly value="${GITHUB_URL}">` +
-          `<button id="zs-setup-copy">Copy</button>` +
+        `<div class="rl-setup-copy-row">` +
+          `<input type="text" id="rl-setup-link" readonly value="${GITHUB_URL}">` +
+          `<button id="rl-setup-copy">Copy</button>` +
         `</div>` +
         videoBtn +
-        `<button id="zs-setup-dismiss">Got it</button>`;
+        `<button id="rl-setup-dismiss">Got it</button>`;
       document.documentElement.appendChild(setupCard);
 
-      setupCard.querySelector("#zs-setup-copy").addEventListener("click", () => {
+      setupCard.querySelector("#rl-setup-copy").addEventListener("click", () => {
         try { navigator.clipboard.writeText(GITHUB_URL); } catch {
-          const inp = setupCard.querySelector("#zs-setup-link");
+          const inp = setupCard.querySelector("#rl-setup-link");
           inp.select(); try { document.execCommand("copy"); } catch {}
         }
-        const btn = setupCard.querySelector("#zs-setup-copy");
+        const btn = setupCard.querySelector("#rl-setup-copy");
         btn.textContent = "Copied!";
         setTimeout(() => { btn.textContent = "Copy"; }, 1600);
       });
 
-      setupCard.querySelector("#zs-setup-dismiss").addEventListener("click", () => {
+      setupCard.querySelector("#rl-setup-dismiss").addEventListener("click", () => {
         setupSeen = true;
-        try { chrome.storage.local.set({ zsSetupSeen: true }); } catch {}
+        try { chrome.storage.local.set({ rlSetupSeen: true }); } catch {}
         hideSetup();
       });
     }
@@ -4610,7 +4616,7 @@ return result`;
       // chats share a key, and the conversation id only appears mid-bootstrap).
       if (A.starting) {
         toneClass = "starting";
-        indicator = `<span class="zs-spin"></span>`;
+        indicator = `<span class="rl-spin"></span>`;
         msg = `Starting the Roblox agent…`;
         label = "Starting…"; kind = "starting"; disabled = true;
       } else if (A.started) {
@@ -4642,7 +4648,7 @@ return result`;
           // offline)" path) - they may only want the addon tools (e.g. Blender).
           // Keep the YELLOW dot as the honest health signal, but do NOT keep the
           // red imperative "open Roblox Studio" nag on screen for the whole
-          // session (warn=false → no zs-state-warn red text). The full nag
+          // session (warn=false → no rl-state-warn red text). The full nag
           // still shows when NO server is usable (the branches below).
           toneClass = "warn";
           msg = `<b>Agent active</b>${tools ? ` · ${tools} tools` : ""} · Roblox offline`;
@@ -4740,13 +4746,13 @@ return result`;
       const sig = [toneClass, indicator, msg, label, kind, disabled, warn, busy, showExtras].join("|");
       if (sig === lastBarSig) return;
       lastBarSig = sig;
-      // Set the tone WITHOUT clobbering other classes (e.g. zs-bar-inline, which
+      // Set the tone WITHOUT clobbering other classes (e.g. rl-bar-inline, which
       // placeBar adds for the in-flow mount - overwriting className broke the
       // layout, making the bar fall back to fixed positioning and overlap).
       bar.classList.remove("tone-standby", "tone-active", "tone-warn", "tone-noagent", "tone-starting");
       bar.classList.add(`tone-${toneClass}`);
-      stateEl.innerHTML = indicator + `<span class="zs-state-txt">${msg}</span>`;
-      stateEl.classList.toggle("zs-state-warn", warn);
+      stateEl.innerHTML = indicator + `<span class="rl-state-txt">${msg}</span>`;
+      stateEl.classList.toggle("rl-state-warn", warn);
       actionBtn.textContent = label;
       actionBtn.dataset.kind = kind;
       actionBtn.disabled = disabled;
@@ -4769,7 +4775,7 @@ return result`;
       A.bridge = s;
       if (Array.isArray(s.servers) && s.servers.length) {
         lastKnownServers = s.servers;
-        try { chrome.storage.local.set({ zsLastServers: s.servers }); } catch {}
+        try { chrome.storage.local.set({ rlLastServers: s.servers }); } catch {}
       }
       if (!dot) return;
       const servers = s.servers || [];
@@ -4839,7 +4845,7 @@ return result`;
       // bridge later drops, it would reappear on top of the bridge-lost banner).
       if (s.connected && !setupSeen) {
         setupSeen = true;
-        try { chrome.storage.local.set({ zsSetupSeen: true }); } catch {}
+        try { chrome.storage.local.set({ rlSetupSeen: true }); } catch {}
       }
       renderBar();
       refreshSetup(s.connected);
@@ -4853,16 +4859,16 @@ return result`;
       }
       if (bridgeBannerEl) return; // already shown
       const b = document.createElement("div");
-      b.className = "zs-banner limit";
+      b.className = "rl-banner limit";
       // The setup tutorial lives INSIDE this banner (not as a separate card) so it
       // can never overlap the alert - the previous standalone onboarding card did.
       const videoLink = VIDEO_URL
-        ? `<a class="zs-banner-video" href="${VIDEO_URL}" target="_blank" rel="noopener">▶ Watch setup tutorial</a>`
+        ? `<a class="rl-banner-video" href="${VIDEO_URL}" target="_blank" rel="noopener">▶ Watch setup tutorial</a>`
         : "";
-      b.innerHTML = `<div class="zs-banner-t">⚠ Lost connection to RLScript</div>
-        <div class="zs-banner-m">The RLScript bridge stopped on your PC. Restart it (run start.bat and keep Roblox Studio open): the agent will reconnect automatically as soon as it is detected again.</div>
-        <div class="zs-banner-acts">${videoLink}<button class="zs-banner-x">Close</button></div>`;
-      b.querySelector(".zs-banner-x").addEventListener("click", () => { b.remove(); if (bridgeBannerEl === b) bridgeBannerEl = null; });
+      b.innerHTML = `<div class="rl-banner-t">⚠ Lost connection to RLScript</div>
+        <div class="rl-banner-m">The RLScript bridge stopped on your PC. Restart it (run start.bat and keep Roblox Studio open): the agent will reconnect automatically as soon as it is detected again.</div>
+        <div class="rl-banner-acts">${videoLink}<button class="rl-banner-x">Close</button></div>`;
+      b.querySelector(".rl-banner-x").addEventListener("click", () => { b.remove(); if (bridgeBannerEl === b) bridgeBannerEl = null; });
       root.appendChild(b);
       bridgeBannerEl = b;
     }
@@ -4912,15 +4918,15 @@ return result`;
         toast("Tip: click “▶ Start Roblox agent” to let the AI control Roblox Studio.");
       }
       if (!actionBtn) return;
-      actionBtn.classList.add("zs-flash");
-      setTimeout(() => actionBtn.classList.remove("zs-flash"), 1200);
+      actionBtn.classList.add("rl-flash");
+      setTimeout(() => actionBtn.classList.remove("rl-flash"), 1200);
     }
 
     // ── Theme auto-detection (light / dark) ─────────────────────────────────
     // The panel and the in-conversation chips are dark-themed by default. On a
     // LIGHT host page the chips' light text on a near-transparent tint becomes
     // invisible, so we detect the page's effective background luminance and add
-    // `.zs-light` to <html>; overlay.css then flips to readable light colours.
+    // `.rl-light` to <html>; overlay.css then flips to readable light colours.
     // Most chat sites declare their theme EXPLICITLY (a `dark`/`light` class on
     // <html>/<body>, a data-theme attribute, or CSS color-scheme) - far more
     // reliable than luminance, since many (e.g. z.ai) leave <html>/<body> with a
@@ -4960,7 +4966,7 @@ return result`;
         if (m.length < 3) return;
         light = 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2] > 140;
       }
-      document.documentElement.classList.toggle("zs-light", light);
+      document.documentElement.classList.toggle("rl-light", light);
     }
 
     // Where the bar lives INSIDE the site's composer. We insert it as a real,
@@ -5007,7 +5013,7 @@ return result`;
 
       // Self-heal: a SPA navigation or a full re-render on the host (seen on Arena
       // when the message frame jumps/teleports to the bottom) can detach our whole
-      // #zs-root from <html>, taking the bar with it - and nothing re-adds it, so
+      // #rl-root from <html>, taking the bar with it - and nothing re-adds it, so
       // the panel just vanishes. Re-append it whenever it's been detached; this
       // rAF loop is resilient (its next frame is scheduled before any body code),
       // so the panel reappears on the very next frame.
@@ -5044,13 +5050,13 @@ return result`;
         if (bar.parentElement !== mount.parent || bar.nextElementSibling !== mount.before) {
           try { mount.parent.insertBefore(bar, mount.before || null); } catch {}
         }
-        if (!bar.classList.contains("zs-bar-inline")) {
-          bar.classList.add("zs-bar-inline");
+        if (!bar.classList.contains("rl-bar-inline")) {
+          bar.classList.add("rl-bar-inline");
           bar.style.cssText = ""; // drop any leftover float positioning
         }
         // Transparent (blends in) when mounted INSIDE the input box; surface card
         // when mounted ABOVE it. The provider's barMount() signals which via .inside.
-        bar.classList.toggle("zs-bar-inside", !!mount.inside);
+        bar.classList.toggle("rl-bar-inside", !!mount.inside);
         bar.style.display = "flex";
         if (menuEl && !menuEl.hidden) {
           const br = bar.getBoundingClientRect();
@@ -5063,16 +5069,16 @@ return result`;
 
       // Anchored mode: the provider wants the integrated, in-composer LOOK but
       // its composer is a framework-reconciled subtree we must NOT insert our
-      // node into (e.g. Kimi's Vue tree - inserting #zs-bar there makes Vue's
+      // node into (e.g. Kimi's Vue tree - inserting #rl-bar there makes Vue's
       // next diff reuse the bar node as a host and nest the editor inside it).
-      // So we keep the bar in our own #zs-root, position it (position:fixed) to
+      // So we keep the bar in our own #rl-root, position it (position:fixed) to
       // hug the composer's top edge at full width, and RESERVE that strip with
       // padding-top on the composer so it reads as in-flow without ever becoming
       // a child of the framework's DOM. barAnchor() returns the element to hug.
       const anchorEl = (P.barAnchor && P.barAnchor()) || null;
       if (anchorEl && anchorEl.isConnected) {
-        bar.classList.remove("zs-bar-inline", "zs-bar-inside");
-        bar.classList.add("zs-bar-anchored");
+        bar.classList.remove("rl-bar-inline", "rl-bar-inside");
+        bar.classList.add("rl-bar-anchored");
         if (root && bar.parentElement !== root) root.appendChild(bar);
         const r = anchorEl.getBoundingClientRect();
         if (!r.width) { bar.style.display = "none"; clearAnchorPad(); if (menuEl) menuEl.hidden = true; return; }
@@ -5085,20 +5091,20 @@ return result`;
         bar.style.top = Math.round(r.top) + "px";
         bar.style.width = Math.round(r.width) + "px";
         if (menuEl && !menuEl.hidden) {
-          bar.classList.remove("zs-bar-inline"); // ensure fixed geometry for menu math
+          bar.classList.remove("rl-bar-inline"); // ensure fixed geometry for menu math
           menuEl.style.right = Math.round(window.innerWidth - (r.left + r.width)) + "px";
           menuEl.style.bottom = Math.round(window.innerHeight - r.top + 6) + "px";
           menuEl.style.maxHeight = Math.max(140, Math.round(r.top - 16)) + "px";
         }
         return;
       }
-      bar.classList.remove("zs-bar-anchored");
+      bar.classList.remove("rl-bar-anchored");
       clearAnchorPad();
 
       // Fallback: float just above the editor (fixed positioning), for sites
       // where no clean inline mount could be resolved.
-      if (bar.classList.contains("zs-bar-inline")) {
-        bar.classList.remove("zs-bar-inline");
+      if (bar.classList.contains("rl-bar-inline")) {
+        bar.classList.remove("rl-bar-inline");
         if (root && bar.parentElement !== root) root.appendChild(bar);
       }
       const f = (P.getEditor && P.getEditor()) || (P.composerFrame && P.composerFrame());
@@ -5184,15 +5190,15 @@ return result`;
       const ed = P.getEditor();
       if (!on) {
         if (cover) { cover.style.display = "none"; cover.dataset.on = ""; }
-        if (ed) ed.classList.remove("zs-typing");
+        if (ed) ed.classList.remove("rl-typing");
         cancelAnimationFrame(coverRaf);
         return;
       }
       if (!ed) return;
-      ed.classList.add("zs-typing"); // make the typed text itself invisible
+      ed.classList.add("rl-typing"); // make the typed text itself invisible
       if (!cover) {
         cover = document.createElement("div");
-        cover.id = "zs-input-cover";
+        cover.id = "rl-input-cover";
         cover.innerHTML = `<span>Agent is working…</span>`;
         document.documentElement.appendChild(cover);
       }
@@ -5208,7 +5214,7 @@ return result`;
         // recreate the editor on each inject/clear (Kimi's Vue) drop the class,
         // which would un-hide the raw text and un-cap its height. Cheap idempotent
         // add every frame keeps the mask + height cap glued to the live node.
-        if (!e.classList.contains("zs-typing")) e.classList.add("zs-typing");
+        if (!e.classList.contains("rl-typing")) e.classList.add("rl-typing");
         // The cover is SIZED to coverTarget() when a provider supplies one, else
         // to the editor node itself. Some composers (Meta AI) make the editable a
         // tiny line inside a much larger rounded card - covering only the editor
@@ -5234,7 +5240,7 @@ return result`;
         // Clip the cover to the composer's VISIBLE band. Some composers grow the
         // inner editor node past a scrolling ancestor that clips it (Kimi's Vue
         // RECREATES .chat-input-editor on every inject/clear, dropping the
-        // .zs-typing height cap, so the editor balloons to ~1500px while its
+        // .rl-typing height cap, so the editor balloons to ~1500px while its
         // .chat-input-editor-container caps the visible box via overflow:auto).
         // Measuring the raw editor then centres the cover on the giant editor's
         // midpoint - far below the visible input - so it "vanishes" off the box.
@@ -5268,7 +5274,7 @@ return result`;
         // (seen on Cloudflare's 1-line textarea). For a composer already taller
         // than MIN_H the maths reduces to the old `r.top - PAD`, so DeepSeek/Gemini
         // are unchanged.
-        // Hard ceiling: even though .zs-typing caps the editor's visual height
+        // Hard ceiling: even though .rl-typing caps the editor's visual height
         // (see overlay.css), belt-and-suspenders clamp the cover so a composer
         // whose growing element escapes that CSS cap on some provider can never
         // turn the "Agent is working…" cover into a full-page white slab.
@@ -5293,7 +5299,7 @@ return result`;
 
     function toast(msg) {
       const t = document.createElement("div");
-      t.className = "zs-toast";
+      t.className = "rl-toast";
       t.textContent = msg;
       root.appendChild(t);
       setTimeout(() => t.classList.add("show"), 10);
@@ -5302,14 +5308,14 @@ return result`;
 
     function banner(kind, title, msg) {
       const b = document.createElement("div");
-      b.className = `zs-banner ${kind}`;
-      b.innerHTML = `<div class="zs-banner-t"></div><div class="zs-banner-m"></div>
-        <div class="zs-banner-acts">
-          <button class="zs-banner-x">Close</button>
+      b.className = `rl-banner ${kind}`;
+      b.innerHTML = `<div class="rl-banner-t"></div><div class="rl-banner-m"></div>
+        <div class="rl-banner-acts">
+          <button class="rl-banner-x">Close</button>
         </div>`;
-      b.querySelector(".zs-banner-t").textContent = title;
-      b.querySelector(".zs-banner-m").textContent = msg;
-      b.querySelector(".zs-banner-x").addEventListener("click", () => b.remove());
+      b.querySelector(".rl-banner-t").textContent = title;
+      b.querySelector(".rl-banner-m").textContent = msg;
+      b.querySelector(".rl-banner-x").addEventListener("click", () => b.remove());
       root.appendChild(b);
     }
 
@@ -5318,26 +5324,26 @@ return result`;
     // every provider and never touches the site's DOM. Only the most recent
     // capture is kept - a new one replaces the old.
     function showImages(images, toolName) {
-      root.querySelectorAll(".zs-shot").forEach((e) => e.remove());
+      root.querySelectorAll(".rl-shot").forEach((e) => e.remove());
       const wrap = document.createElement("div");
-      wrap.className = "zs-shot";
+      wrap.className = "rl-shot";
       const hdr = document.createElement("div");
-      hdr.className = "zs-shot-hdr";
+      hdr.className = "rl-shot-hdr";
       const ttl = document.createElement("span");
-      ttl.className = "zs-shot-ttl";
+      ttl.className = "rl-shot-ttl";
       ttl.textContent = `${toolName} · ${images.length} image${images.length > 1 ? "s" : ""}`;
       const close = document.createElement("button");
-      close.className = "zs-shot-x";
+      close.className = "rl-shot-x";
       close.textContent = "✕";
       close.addEventListener("click", () => wrap.remove());
       hdr.appendChild(ttl);
       hdr.appendChild(close);
       wrap.appendChild(hdr);
       const body = document.createElement("div");
-      body.className = "zs-shot-body";
+      body.className = "rl-shot-body";
       for (const img of images) {
         const el = document.createElement("img");
-        el.className = "zs-shot-img";
+        el.className = "rl-shot-img";
         el.src = `data:${img.mimeType || "image/jpeg"};base64,${img.data}`;
         body.appendChild(el);
       }
@@ -5371,14 +5377,14 @@ return result`;
   }
 
   function setChipDetail(item, text) {
-    const dt = item && item.querySelector(".zs-chip .zs-chip-dt");
+    const dt = item && item.querySelector(".rl-chip .rl-chip-dt");
     if (dt) dt.textContent = text;
   }
 
   // Update ONLY the chip's label text (no innerHTML rebuild), so live-correcting
   // the name mid-stream doesn't restart the spinner or wipe the token meter.
   function setChipLabel(item, text) {
-    const tx = item && item.querySelector(".zs-chip .zs-chip-tx");
+    const tx = item && item.querySelector(".rl-chip .rl-chip-tx");
     if (tx && tx.textContent !== text) tx.textContent = text;
   }
 
@@ -5397,7 +5403,7 @@ return result`;
   // fired 8s/2s after a Stop with no user action, un-stopping the halted turn).
   let _userClickAt = 0;
   document.addEventListener("click", (e) => {
-    if (e.isTrusted && !(e.target && e.target.closest && e.target.closest("#zs-root"))) {
+    if (e.isTrusted && !(e.target && e.target.closest && e.target.closest("#rl-root"))) {
       _userClickAt = Date.now();
     }
   }, true);
@@ -5461,7 +5467,7 @@ return result`;
       // Distinguish the two by ORDER, not a fixed delay: require the latest
       // trusted click to fall clearly AFTER the Stop (clickAfterStop). A native
       // stop click lands ~at A.stopAt, so it fails this and can't self-resume;
-      // the extension's own "■ Stop" is inside #zs-root and never updates
+      // the extension's own "■ Stop" is inside #rl-root and never updates
       // _userClickAt at all, so only the later regenerate qualifies. This
       // replaces the old absolute `stopAge > 3000` grace, which also blocked a
       // user who regenerated quickly (~1.5s) after Stop - the real bug seen live.
@@ -5494,7 +5500,7 @@ return result`;
           // holds the stale command and keep the coherent red "stopped" look until
           // Kimi actually replaces it (see the zRegenLen guard in classify).
           try {
-            it.dataset.zRegenLen = String(P.classifyText(it, ".zs-chip").length);
+            it.dataset.zRegenLen = String(P.classifyText(it, ".rl-chip").length);
             it.dataset.zRegenAt = String(Date.now());
           } catch {}
         }
@@ -5541,7 +5547,7 @@ return result`;
         // and Gemini queues that stray abort against the conversation, then
         // KILLS THE NEXT reply the instant it starts ("Vous avez interrompu
         // cette réponse" on a message the user never stopped - validated live,
-        // 2026-07: two stray stop.retry clicks after a ZS Stop made the next
+        // 2026-07: two stray stop.retry clicks after a RL Stop made the next
         // two user turns die instantly; with no stray clicks the same flow
         // worked). A swallowed first click - the case this retry exists for -
         // always shows up as the stream STILL writing, i.e. growth past the
@@ -5570,7 +5576,7 @@ return result`;
 
     // Tool is executing on the MCP → timer on its chip.
     if (A.toolRunning && A.toolItem) {
-      const s = elapsedOn(A.toolItem, "zsToolT0", A.toolStart).toFixed(1);
+      const s = elapsedOn(A.toolItem, "rlToolT0", A.toolStart).toFixed(1);
       setChipDetail(A.toolItem, (A.toolArg ? A.toolArg + " · " : "") + `${s}s`);
       return;
     }
@@ -5580,12 +5586,12 @@ return result`;
       const reply = item ? P.itemText(item) : ""; // non-thinking only
       const zphase = item && item.dataset.zphase;
       // Skip items already settled (done/err) - don't overwrite the finished chip.
-      if (item && zphase !== "done" && zphase !== "err" && ZSParse.hasToolSignature(reply)) {
+      if (item && zphase !== "done" && zphase !== "err" && RLParse.hasToolSignature(reply)) {
         // Live-correct the label as soon as the real name streams in.
-        const name = ZSParse.toolNameFromText(reply);
+        const name = RLParse.toolNameFromText(reply);
         if (name && name !== "command") setChipLabel(item, name);
         const tokens = Math.floor(reply.length / TOKEN_CHARS);
-        const s = Math.round(elapsedOn(item, "zsGenT0"));
+        const s = Math.round(elapsedOn(item, "rlGenT0"));
         setChipDetail(item, `~${formatCount(tokens)} tokens · ${s}s`);
         return;
       }
@@ -5597,19 +5603,19 @@ return result`;
   // ════════════════════════════════════════════════════════════════════════
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg && msg.type === "zs-status") {
+    if (msg && msg.type === "rl-status") {
       ui.setStatus({ connected: msg.connected, mcpAlive: msg.mcpAlive, studio: msg.studio, studioApp: msg.studioApp, studioProc: msg.studioProc, tools: msg.tools, servers: msg.servers });
     }
-    if (msg && msg.type === "zs-open-menu") {
+    if (msg && msg.type === "rl-open-menu") {
       try { ui.openMenu(false); } catch (e) {} // from the popup's Settings button — opens at the top (Switch AI / custom prompt)
       sendResponse({ ok: true }); // lets the background distinguish this build from a stale tab
     }
-    if (msg && msg.type === "zs-close-menu") {
+    if (msg && msg.type === "rl-close-menu") {
       // The popup's icon click closes the in-page Settings panel.
       try { ui.closeMenu(); } catch (e) {}
       sendResponse({ ok: true });
     }
-    if (msg && msg.type === "zs-ext-update") {
+    if (msg && msg.type === "rl-ext-update") {
       // Extension-side update found (no bridge running): badge + toast.
       try {
         toast(`RLScript update available (build ${msg.build}).`);
@@ -5635,13 +5641,13 @@ return result`;
     if (!path) return;
     if (startedSessions.has(path)) return;
     startedSessions.add(path);
-    try { chrome.storage.local.set({ zsStartedSessions: [...startedSessions].slice(-300) }); } catch {}
+    try { chrome.storage.local.set({ rlStartedSessions: [...startedSessions].slice(-300) }); } catch {}
   }
   // Load the persisted set once, then re-sync.
   try {
-    chrome.storage.local.get("zsStartedSessions", (r) => {
-      if (r && Array.isArray(r.zsStartedSessions)) {
-        for (const p of r.zsStartedSessions) startedSessions.add(p);
+    chrome.storage.local.get("rlStartedSessions", (r) => {
+      if (r && Array.isArray(r.rlStartedSessions)) {
+        for (const p of r.rlStartedSessions) startedSessions.add(p);
         syncSessionState();
       }
     });
@@ -5653,7 +5659,7 @@ return result`;
   function domHasZsSignal() {
     for (const it of P.allItems()) {
       const txt = it.textContent || "";
-      if (txt.includes(ZS.SYS_MARKER)) return true;
+      if (txt.includes(RL.SYS_MARKER)) return true;
       if (/(^|\n)\s*Output of '[^']+':/.test(txt) || txt.includes("(System note:")) return true;
       // Deliberately NO bare command-shape test here. An assistant turn that
       // merely CONTAINS {"command":...} / ###LUA### is NOT proof of a session:
@@ -5666,7 +5672,7 @@ return result`;
       // always followed by our injected "Output of '...'" feedback turn, which
       // the test above already catches. Virtualization (the marker turns
       // scrolling out of the DOM) is covered by the persisted per-conversation
-      // key set (startedSessions / zsStartedSessions in rememberSession), not
+      // key set (startedSessions / rlStartedSessions in rememberSession), not
       // by this heuristic.
     }
     return false;
@@ -5775,19 +5781,19 @@ return result`;
     if (A.injectHideUntil && Date.now() < A.injectHideUntil) {
       const users = items.filter((it) => P.isUserItem(it));
       const last = users[users.length - 1];
-      if (last && !last.classList.contains("zs-hidden") &&
+      if (last && !last.classList.contains("rl-hidden") &&
           users.length > (A.injectPreUser || 0)) {
-        last.classList.add("zs-hidden");
+        last.classList.add("rl-hidden");
         A.injectHideUntil = 0; // one-shot: this turn is now masked
         diag("result.prehide", { users: users.length });
       }
     }
     for (const item of items) {
-      if (item.classList.contains("zs-hidden")) continue;
-      const txt = P.classifyText(item, ".zs-chip");
-      if (txt.includes(ZS.SYS_MARKER) ||
-          (P.isUserItem(item) && ZSParse.isInjectedFeedback(txt))) {
-        item.classList.add("zs-hidden");
+      if (item.classList.contains("rl-hidden")) continue;
+      const txt = P.classifyText(item, ".rl-chip");
+      if (txt.includes(RL.SYS_MARKER) ||
+          (P.isUserItem(item) && RLParse.isInjectedFeedback(txt))) {
+        item.classList.add("rl-hidden");
       }
     }
   }
@@ -5896,9 +5902,9 @@ return result`;
     const all = P.allItems();
     const after = all[all.indexOf(item) + 1];
     if (after && P.isUserItem(after) &&
-        ZSParse.isInjectedFeedback(P.classifyText(after, ".zs-chip"))) return;
+        RLParse.isInjectedFeedback(P.classifyText(after, ".rl-chip"))) return;
     const txt = P.itemText(item);
-    if (!ZSParse.hasToolSignature(txt)) return;
+    if (!RLParse.hasToolSignature(txt)) return;
     // Node-independent dedupe: this turn's command was already dispatched (by the
     // loop or a prior resume). The dataset guards below are wiped when the site
     // recreates the node on scroll, so without this off-DOM check the watchdog
@@ -5906,7 +5912,7 @@ return result`;
     if (isRememberedExecuted(item, txt)) return;
     // Resume only when a COMPLETE, parseable command is present - and re-attempt
     // if the turn has GROWN since our last try.
-    if (!ZSParse.parseToolCalls(txt).length) return;
+    if (!RLParse.parseToolCalls(txt).length) return;
     const len = txt.length;
     if (item.dataset.zResume && Number(item.dataset.zResumeLen || 0) >= len) return;
     item.dataset.zResume = "1";

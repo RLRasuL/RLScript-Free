@@ -16,7 +16,7 @@ chrome.tabs.query({}, (tabs) => {
   const active = tabs.find((t) => t.active && t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
   const anySupported = active || tabs.find((t) => t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
   if (anySupported) {
-    try { chrome.tabs.sendMessage(anySupported.id, { type: "zs-close-menu" }); } catch {}
+    try { chrome.tabs.sendMessage(anySupported.id, { type: "rl-close-menu" }); } catch {}
   }
 });
 
@@ -67,8 +67,8 @@ document.getElementById("settings").addEventListener("click", () => {
     const active = tabs.find((t) => t.active && t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
     const anySupported = active || tabs.find((t) => t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
     chrome.runtime.sendMessage(anySupported
-      ? { type: "zs-open-menu", tabId: anySupported.id }
-      : { type: "zs-open-menu", url: DEFAULT_AI_URL });
+      ? { type: "rl-open-menu", tabId: anySupported.id }
+      : { type: "rl-open-menu", url: DEFAULT_AI_URL });
     window.close();
   });
 });
@@ -126,7 +126,7 @@ function setLabel(model) {
 }
 
 function saveAskAi(provider, model, key, statusText) {
-  chrome.storage.local.set({ zsAskAiProvider: provider, zsAskAiModel: model, zsAskAiKey: key }, () => {
+  chrome.storage.local.set({ rlAskAiProvider: provider, rlAskAiModel: model, rlAskAiKey: key }, () => {
     stored.provider = provider;
     stored.model = model;
     stored.key = key;
@@ -194,7 +194,7 @@ document.getElementById("ai-save").addEventListener("click", () => {
 });
 
 document.getElementById("ai-clear").addEventListener("click", () => {
-  chrome.storage.local.set({ zsAskAiProvider: "", zsAskAiModel: "", zsAskAiKey: "" }, () => {
+  chrome.storage.local.set({ rlAskAiProvider: "", rlAskAiModel: "", rlAskAiKey: "" }, () => {
     stored.provider = "openai";
     stored.model = "";
     stored.key = "";
@@ -205,10 +205,10 @@ document.getElementById("ai-clear").addEventListener("click", () => {
   });
 });
 
-chrome.storage.local.get(["zsAskAiProvider", "zsAskAiModel", "zsAskAiKey"], (r) => {
-  stored.provider = PROVIDERS.includes(r.zsAskAiProvider) ? r.zsAskAiProvider : "openai";
-  stored.model = r.zsAskAiModel || "";
-  stored.key = r.zsAskAiKey || "";
+chrome.storage.local.get(["rlAskAiProvider", "rlAskAiModel", "rlAskAiKey"], (r) => {
+  stored.provider = PROVIDERS.includes(r.rlAskAiProvider) ? r.rlAskAiProvider : "openai";
+  stored.model = r.rlAskAiModel || "";
+  stored.key = r.rlAskAiKey || "";
   keyEl.value = stored.key || "";
   setLabel(stored.model);
   if (stored.key) aiStatus(`ask_ai configured · ${PROVIDER_NAMES[stored.provider]} · ${stored.model || ASK_AI_MODEL_HINTS[stored.provider]}`, "ok");
@@ -216,15 +216,15 @@ chrome.storage.local.get(["zsAskAiProvider", "zsAskAiModel", "zsAskAiKey"], (r) 
 
 // ── Syntax Shield (fix_script safety gate) ───────────────────────────────
 const shieldEl = document.getElementById("syntax-shield");
-chrome.storage.local.get(["zsSyntaxShield"], (r) => {
-  shieldEl.checked = r.zsSyntaxShield === true;
+chrome.storage.local.get(["rlSyntaxShield"], (r) => {
+  shieldEl.checked = r.rlSyntaxShield === true;
 });
 shieldEl.addEventListener("change", () => {
-  chrome.storage.local.set({ zsSyntaxShield: shieldEl.checked });
+  chrome.storage.local.set({ rlSyntaxShield: shieldEl.checked });
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.type === "zs-status") render(msg);
+  if (msg && msg.type === "rl-status") render(msg);
 });
 refresh();
 setInterval(refresh, 2000);

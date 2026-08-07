@@ -1,6 +1,6 @@
 # RLScript Free - AI Roblox Studio Agent (DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT, Copilot)
 
-Control Roblox Studio with AI, for free. RLScript (formerly ZeroScript) turns a normal AI chat (DeepSeek, Google Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT, or Copilot) into an agent that builds and scripts your Roblox game for you: just describe what you want, and it reads/edits scripts, runs Luau, inspects the game tree, and generates assets directly in Roblox Studio. No API key, no terminal, no coding required.
+Control Roblox Studio with AI, for free. RLScript (formerly RLScript) turns a normal AI chat (DeepSeek, Google Gemini, Kimi, GLM, Qwen, Arena, Meta AI, MiniMax, Grok, Claude, ChatGPT, or Copilot) into an agent that builds and scripts your Roblox game for you: just describe what you want, and it reads/edits scripts, runs Luau, inspects the game tree, and generates assets directly in Roblox Studio. No API key, no terminal, no coding required.
 
 It's a Chrome/Edge browser extension plus a small local bridge that connects the chat to Roblox Studio through the official MCP server. **DeepSeek is the recommended provider.** Gemini, Kimi, GLM, Qwen, Arena Direct, Arena Agent, Meta AI, MiniMax, Grok, Claude, ChatGPT and Copilot also work. MiniMax, Grok, Claude, ChatGPT and Copilot may require you to be signed in. On Arena Direct, keep the mode dropdown on **Direct**.
 
@@ -10,7 +10,7 @@ It's a Chrome/Edge browser extension plus a small local bridge that connects the
 1. Go to `edge://extensions` (Edge) or `chrome://extensions` (Chrome)
 2. Enable **Developer mode** (top right toggle)
 3. Click **Load unpacked**
-4. Select the `zeroscript-extension` folder
+4. Select the `rlscript-extension` folder
 5. The extension is now active
 
 **Then set up the Bridge:**
@@ -29,32 +29,32 @@ It's a Chrome/Edge browser extension plus a small local bridge that connects the
 The extension is split between a provider-agnostic core and per-AI-site providers:
 
 ```
-core/config.js        system prompt, feedback strings, tool categories (global ZS)
-core/parser.js        RLScript command parsing - pure string logic   (global ZSParse)
-core/main.js          agentic loop, UI, camouflage, session state      (uses ZSProvider)
+core/config.js        system prompt, feedback strings, tool categories (global RL)
+core/parser.js        RLScript command parsing - pure string logic   (global RLParse)
+core/main.js          agentic loop, UI, camouflage, session state      (uses RLProvider)
 providers/deepseek.js everything DeepSeek-specific: DOM selectors, generation
-                      detection, send mechanics, composer modes…       (global ZSProvider)
+                      detection, send mechanics, composer modes…       (global RLProvider)
 providers/gemini.js   same interface for Google Gemini (Angular DOM, Quill
-                      composer, code-block masking)                    (global ZSProvider)
+                      composer, code-block masking)                    (global RLProvider)
 providers/kimi.js     same interface for Kimi / Moonshot AI (Vue DOM, Lexical
-                      composer, segment-code masking)                  (global ZSProvider)
+                      composer, segment-code masking)                  (global RLProvider)
 providers/glm.js      same interface for GLM / Z.ai (Svelte DOM, code-block
-                      wrapper masking)                                 (global ZSProvider)
+                      wrapper masking)                                 (global RLProvider)
 providers/qwen.js     same interface for Qwen / chat.qwen.ai (Vue DOM, network-tap
-                      SSE stream, Monaco disposal guard)               (global ZSProvider)
+                      SSE stream, Monaco disposal guard)               (global RLProvider)
 providers/qwen-net.js MAIN-world fetch tap for Qwen SSE stream        (injected by manifest)
 providers/arena.js    same interface for Arena / arena.ai (React DOM, multi-model
-                      playground, A/B-comparison auto-commit, Direct-mode gate) (global ZSProvider)
+                      playground, A/B-comparison auto-commit, Direct-mode gate) (global RLProvider)
 providers/meta.js     same interface for Meta AI / meta.ai (React DOM, textarea
-                      composer, JSON-viewer + code-collapse masking)   (global ZSProvider)
+                      composer, JSON-viewer + code-collapse masking)   (global RLProvider)
 providers/modern.js   same interface for MiniMax Agent, Grok, Claude and Copilot
-                      (semantic composer/message adapters)            (global ZSProvider)
+                      (semantic composer/message adapters)            (global RLProvider)
                       plus Arena Agent and ChatGPT adapters
 background.js         WebSocket to the local bridge (provider-agnostic)
 ```
 
 `core/main.js` never touches the host site's DOM directly - it only calls the
-`ZSProvider` interface. To integrate another AI site: write a new
+`RLProvider` interface. To integrate another AI site: write a new
 `providers/<site>.js` exporting the same interface, then add its URL pattern to
 `manifest.json` (`content_scripts` + `host_permissions`) and to
 `PROVIDER_URLS` in `background.js`. No core change required.

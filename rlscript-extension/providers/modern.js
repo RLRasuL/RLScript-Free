@@ -7,7 +7,7 @@
 // data-testid, aria labels, data-role and message-id attributes first, with
 // conservative fallbacks for minor redesigns.
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -183,7 +183,7 @@ const ZSProvider = (() => {
   };
 
   const visible = (el) => {
-    if (!el || el.closest("#zs-root")) return false;
+    if (!el || el.closest("#rl-root")) return false;
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden") return false;
     const r = el.getBoundingClientRect();
@@ -203,14 +203,14 @@ const ZSProvider = (() => {
     if (grokSettingsSurface()) return null;
     try {
       for (const el of document.querySelectorAll(SITE.editor)) {
-        if (!el.closest("#zs-root") && visible(el)) return el;
+        if (!el.closest("#rl-root") && visible(el)) return el;
       }
       // Grok has a stable form around the composer even when its localized
       // aria-label changes. This fallback never selects the cookie-settings
       // textarea because that control is not inside the chat form.
       if (SITE.id === "grok") {
         for (const el of document.querySelectorAll("form textarea")) {
-          if (!el.closest("#zs-root") && visible(el)) return el;
+          if (!el.closest("#rl-root") && visible(el)) return el;
         }
       }
     } catch {}
@@ -227,8 +227,8 @@ const ZSProvider = (() => {
     const ed = getEditor();
     if (!ed) return;
     if (on) {
-      if (!ed.dataset.zsPlaceholder) ed.dataset.zsPlaceholder = ed.getAttribute("placeholder") || "";
-      ed.dataset.zsLocked = "1";
+      if (!ed.dataset.rlPlaceholder) ed.dataset.rlPlaceholder = ed.getAttribute("placeholder") || "";
+      ed.dataset.rlLocked = "1";
       if (ed.matches("[contenteditable]")) {
         ed.setAttribute("contenteditable", "false");
       } else {
@@ -236,14 +236,14 @@ const ZSProvider = (() => {
       }
       ed.setAttribute("placeholder", "Agent working...");
     } else {
-      delete ed.dataset.zsLocked;
+      delete ed.dataset.rlLocked;
       if (ed.matches("[contenteditable]")) {
         ed.setAttribute("contenteditable", "true");
       } else {
         ed.removeAttribute("readonly");
       }
-      if (ed.dataset.zsPlaceholder != null) {
-        ed.setAttribute("placeholder", ed.dataset.zsPlaceholder);
+      if (ed.dataset.rlPlaceholder != null) {
+        ed.setAttribute("placeholder", ed.dataset.rlPlaceholder);
       }
     }
   }
@@ -305,7 +305,7 @@ const ZSProvider = (() => {
 
   function actionButton(selector) {
     const b = firstVisible(selector);
-    return b && !b.closest("#zs-root") ? b : null;
+    return b && !b.closest("#rl-root") ? b : null;
   }
 
   function isDisabled(el) {
@@ -320,12 +320,12 @@ const ZSProvider = (() => {
     const b = actionButton(SITE.send);
     if (b) return b;
     for (const el of document.querySelectorAll("button")) {
-      if (!visible(el) || el.closest("#zs-root") || isDisabled(el)) continue;
+      if (!visible(el) || el.closest("#rl-root") || isDisabled(el)) continue;
       const aria = (el.getAttribute("aria-label") || "").toLowerCase();
       if (/send|g\u00f6nder|prompt/i.test(aria)) return el;
     }
     for (const el of document.querySelectorAll("button")) {
-      if (!visible(el) || el.closest("#zs-root") || isDisabled(el)) continue;
+      if (!visible(el) || el.closest("#rl-root") || isDisabled(el)) continue;
       const a = (el.getAttribute("aria-label") || "").toLowerCase();
       const t = (el.getAttribute("data-testid") || "").toLowerCase();
       if (a.includes("send") || a.includes("gönder") || t.includes("chat-submit")) return el;
@@ -337,7 +337,7 @@ const ZSProvider = (() => {
     const b = actionButton(SITE.stop);
     if (b) return b;
     for (const el of document.querySelectorAll("button")) {
-      if (!visible(el) || el.closest("#zs-root")) continue;
+      if (!visible(el) || el.closest("#rl-root")) continue;
       const a = (el.getAttribute("aria-label") || "").toLowerCase();
       const t = (el.getAttribute("data-testid") || "").toLowerCase();
       if (a.includes("stop") || a.includes("cancel") || a.includes("durdur") || t.includes("stop")) return el;
@@ -349,7 +349,7 @@ const ZSProvider = (() => {
     const out = [];
     const seen = new Set();
     const addElement = (el) => {
-      if (!el || el.closest("#zs-root") || seen.has(el)) return;
+      if (!el || el.closest("#rl-root") || seen.has(el)) return;
       seen.add(el);
       out.push(el);
     };
@@ -546,7 +546,7 @@ const ZSProvider = (() => {
     if (!root) return "";
     const skip = (el) => {
       if (!el || el.nodeType !== 1) return true;
-      if (el.matches("#zs-root,.zs-chip,button,textarea,input,svg,style,script,[aria-hidden='true']")) return true;
+      if (el.matches("#rl-root,.rl-chip,button,textarea,input,svg,style,script,[aria-hidden='true']")) return true;
       if (excludeSel && el.matches(excludeSel)) return true;
       if (el.matches(SITE.thinking)) return true;
       return false;
@@ -572,7 +572,7 @@ const ZSProvider = (() => {
     if (!item) return null;
     try {
       const candidates = [...item.querySelectorAll(SITE.reply)]
-        .filter((el) => !el.closest(SITE.thinking) && !el.closest("#zs-root"));
+        .filter((el) => !el.closest(SITE.thinking) && !el.closest("#rl-root"));
       return candidates.length ? candidates[candidates.length - 1] : item;
     } catch {
       return item;
@@ -680,7 +680,7 @@ const ZSProvider = (() => {
   async function typeAndSend(text, images) {
     const ed = getEditor();
     if (!ed) return;
-    const locked = ed.dataset.zsLocked === "1" || ed.hasAttribute("readonly") || ed.getAttribute("contenteditable") === "false";
+    const locked = ed.dataset.rlLocked === "1" || ed.hasAttribute("readonly") || ed.getAttribute("contenteditable") === "false";
     if (locked) {
       ed.removeAttribute("readonly");
       ed.setAttribute("contenteditable", "true");
@@ -719,7 +719,7 @@ const ZSProvider = (() => {
   }
 
   function enforceComposer() {
-    if (document.querySelector("#zs-root [data-zs-settings]")) return { ready: !!getEditor() };
+    if (document.querySelector("#rl-root [data-rl-settings]")) return { ready: !!getEditor() };
     return { ready: !!getEditor() };
   }
   async function ensureComposerReady(reason) {
@@ -730,7 +730,7 @@ const ZSProvider = (() => {
   const turnHalted = () => false;
   const findContinueBtn = () => {
     for (const b of document.querySelectorAll("button,[role='button']")) {
-      if (!visible(b) || b.closest("#zs-root")) continue;
+      if (!visible(b) || b.closest("#rl-root")) continue;
       const text = (b.innerText || b.textContent || "").replace(/\s+/g, " ").trim();
       if (RE.continue.test(text)) return b;
     }
@@ -739,7 +739,7 @@ const ZSProvider = (() => {
     // handler just like a click on the row.
     if (SITE.id === "arena-agent") {
       for (const el of document.querySelectorAll("*")) {
-        if (el.children.length || !visible(el) || el.closest("#zs-root")) continue;
+        if (el.children.length || !visible(el) || el.closest("#rl-root")) continue;
         const text = (el.textContent || "").replace(/\s+/g, " ").trim();
         if (RE.continue.test(text)) return el;
       }
@@ -758,7 +758,7 @@ const ZSProvider = (() => {
 
   function scanError() {
     for (const el of document.querySelectorAll('[role="alert"],[class*="error"],[class*="limit"],[class*="warning"]')) {
-      if (!visible(el) || el.closest("#zs-root")) continue;
+      if (!visible(el) || el.closest("#rl-root")) continue;
       const t = (el.innerText || el.textContent || "").trim();
       if (t.length > 8 && t.length < 800 && (RE.contextLimit.test(t) || RE.busy.test(t))) return t.slice(0, 260);
     }
@@ -773,11 +773,11 @@ const ZSProvider = (() => {
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
-    return new File([bytes], "zeroscript_" + Date.now() + "_" + index + "." + ext, { type: mime });
+    return new File([bytes], "rlscript_" + Date.now() + "_" + index + "." + ext, { type: mime });
   }
 
   async function attachImages(images) {
-    const input = [...document.querySelectorAll('input[type="file"]')].find((el) => !el.closest("#zs-root"));
+    const input = [...document.querySelectorAll('input[type="file"]')].find((el) => !el.closest("#rl-root"));
     if (!input || !images || !images.length) return false;
     const dt = new DataTransfer();
     images.forEach((img, i) => {
@@ -838,7 +838,7 @@ const ZSProvider = (() => {
     const direct = target.closest(SITE.send);
     if (direct) return direct;
     const button = target.closest("button,[role='button']");
-    if (!button || button.closest("#zs-root")) return null;
+    if (!button || button.closest("#rl-root")) return null;
     const aria = (button.getAttribute("aria-label") || "").toLowerCase();
     return /send|g\u00f6nder|prompt/i.test(aria) ? button : null;
   }
@@ -887,11 +887,11 @@ const ZSProvider = (() => {
   function findToolBlockSpot(item) {
     if (!item) return null;
     for (const el of item.querySelectorAll("pre,code,[class*='code'],[data-testid*='code']")) {
-      if (el.closest(".zs-chip")) continue;
+      if (el.closest(".rl-chip")) continue;
       const text = el.textContent || "";
       if (CMD_SHAPE.test(text)) {
-        el.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        el.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         return { parent: el.parentElement, ref: el };
       }
     }

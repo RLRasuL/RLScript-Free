@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // providers/gemini.js - the Google Gemini (gemini.google.com) provider.
-// Exports the same ZSProvider interface as providers/deepseek.js; the core
+// Exports the same RLProvider interface as providers/deepseek.js; the core
 // (core/main.js) is provider-agnostic. To DISABLE Gemini support, simply remove
 // this file from manifest.json (and its URL from background.js PROVIDER_URLS).
 //
@@ -23,7 +23,7 @@
 //  - No truncation "Continue" button; no per-turn "stopped" marker we can
 //    rely on → findContinueBtn/turnHalted return null/false.
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {}; // injected by core via init()
@@ -117,14 +117,14 @@ const ZSProvider = (() => {
   const assistantCount = () => assistantItems().length;
   const userCount = () => document.querySelectorAll(S.userItem).length;
   // Scope to the SITE's composer only: skip RLScript's own injected UI (the
-  // settings textarea #zs-set-text in #zs-root). On login/OAuth pages with no
+  // settings textarea #rl-set-text in #rl-root). On login/OAuth pages with no
   // site editor this returns null, keeping the "not on a chat page" guard in
   // the send hooks intact (otherwise our own textarea would defeat it and the
   // hooks could swallow the site's login button).
   const getEditor = () => {
     for (const sel of [S.editor, ".ql-editor"]) {
       for (const e of document.querySelectorAll(sel)) {
-        if (!e.closest("#zs-root")) return e;
+        if (!e.closest("#rl-root")) return e;
       }
     }
     return null;
@@ -175,8 +175,8 @@ const ZSProvider = (() => {
     if (!ed) return;
     ed.setAttribute("contenteditable", on ? "false" : "true");
     const ph = ed.closest("rich-textarea") || ed;
-    if (on) ph.setAttribute("data-zs-locked", "1");
-    else ph.removeAttribute("data-zs-locked");
+    if (on) ph.setAttribute("data-rl-locked", "1");
+    else ph.removeAttribute("data-rl-locked");
   }
 
   // ── Action button (send / stop / mic) ─────────────────────────────────────
@@ -200,7 +200,7 @@ const ZSProvider = (() => {
     if (!item) return "";
     const think = item.querySelector(S.thinking);
     const md = item.querySelector(S.reply);
-    return (think ? think.textContent || "" : "") + "\n" + (md ? textWithout(md, ".zs-chip") : "");
+    return (think ? think.textContent || "" : "") + "\n" + (md ? textWithout(md, ".rl-chip") : "");
   }
   const streamLen = (item) => streamText(item === undefined ? lastAssistant() : item).length;
 
@@ -304,7 +304,7 @@ const ZSProvider = (() => {
     const md = item.querySelector(S.reply);
     return {
       present: true,
-      reply: md ? textWithout(md, ".zs-chip").trim() : "",
+      reply: md ? textWithout(md, ".rl-chip").trim() : "",
       thinking: think ? (think.textContent || "").trim() : "",
       item,
     };
@@ -496,7 +496,7 @@ const ZSProvider = (() => {
     const arr = new Uint8Array(bin.length);
     for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
     const ext = mime.includes("png") ? "png" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    return new File([arr], `rlscript_${Date.now()}_${i}.${ext}`, { type: mime });
   }
   async function attachImages(images) {
     const ed = getEditor();
@@ -619,7 +619,7 @@ const ZSProvider = (() => {
   // The host-walk the DeepSeek provider uses is WRONG here - it descends inside
   // a code-block, so hiding the wrapper then fails. The core anchors the chip at
   // the turn level (chipAtItemLevel), so the returned position is unused; this
-  // function's real job is applying the .zs-tool-hide classes correctly.
+  // function's real job is applying the .rl-tool-hide classes correctly.
   const CMD_SHAPE = /"(?:command|tool)"\s*:\s*"|###\s*lua|###mcp_tool###/i;
   function findToolBlockSpot(item /*, chip */) {
     const replies = [...item.querySelectorAll(S.reply)].filter((m) => !m.closest(S.thinking));
@@ -627,26 +627,26 @@ const ZSProvider = (() => {
     for (const mc of replies) {
       // 1. Fenced code blocks carrying a command.
       mc.querySelectorAll(S.codeWrap).forEach((cb) => {
-        if (cb.closest(".zs-chip")) return;
+        if (cb.closest(".rl-chip")) return;
         if (CMD_SHAPE.test(cb.textContent || "")) {
-          cb.classList.add("zs-tool-hide");
+          cb.classList.add("rl-tool-hide");
           // Angular recreates <code-block> nodes (markdown settle at end of
           // stream + again when the next turn is sent), stripping the class
           // above and flashing the raw command until the next sweep. The
           // <message-content> element KEEPS its identity through those
           // re-renders (validated live), so also mark it: the overlay.css
-          // rule `message-content.zs-cmd-mask code-block` keeps every
+          // rule `message-content.rl-cmd-mask code-block` keeps every
           // recreated block hidden with zero flash.
-          mc.classList.add("zs-cmd-mask");
+          mc.classList.add("rl-cmd-mask");
           hidAny = hidAny || { parent: cb.parentElement, ref: cb };
         }
       });
       // 2. Bare top-level blocks with an inline command (no code-block inside).
       [...mc.children].forEach((el) => {
-        if (el.classList.contains("zs-chip") || el.querySelector(S.codeWrap)) return;
+        if (el.classList.contains("rl-chip") || el.querySelector(S.codeWrap)) return;
         const t = el.textContent || "";
         if (t.length < 600 && CMD_SHAPE.test(t)) {
-          el.classList.add("zs-tool-hide");
+          el.classList.add("rl-tool-hide");
           hidAny = hidAny || { parent: el.parentElement, ref: el };
         }
       });

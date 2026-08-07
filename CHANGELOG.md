@@ -122,10 +122,10 @@
 ## [1.5.2] - 2026-08-05
 
 ### Branding and release metadata
-- Renamed the visible product branding from ZeroScript to **RLScript** across
+- Renamed the visible product branding from RLScript to **RLScript** across
   the extension UI, bridge, prompts, popup, and documentation.
 - Preserved legacy internal identifiers and the existing
-  `game.ServerStorage.ZeroScript.Memory` path for compatibility with existing
+  `game.ServerStorage.RLScript.Memory` path for compatibility with existing
   Roblox places and saved sessions.
 
 ### AI provider support
@@ -184,10 +184,10 @@
 - Updated README download links, release documentation, and version metadata to
   1.5.1 in both the extension and bridge.
 
-All notable changes to ZeroScript Free are documented here.
+All notable changes to RLScript Free are documented here.
 
 ### Recent provider fixes
-- **Skills are now supported.** ZeroScript advertises the local `use_skill`
+- **Skills are now supported.** RLScript advertises the local `use_skill`
   command and the Roblox Studio MCP `skill` command, loading instructions only
   when a task matches them instead of inflating every prompt.
 - Added the text-first `script_analysis` command. It compiles Luau sources and
@@ -197,17 +197,17 @@ All notable changes to ZeroScript Free are documented here.
 - The built-in `script-analysis-fix` skill now performs a before/fix/after text
   validation loop. No separate find-and-replace skill was added because
   `multi_edit` is already the safer and more precise path for targeted edits.
-- Grok now hides the ZeroScript bar on `#subscribe` and the account, appearance,
+- Grok now hides the RLScript bar on `#subscribe` and the account, appearance,
   behavior, and personality settings surfaces, including subscription overlays.
 - Arena Agent recognizes its native **Continue Work** action and automatically
-  resumes the active ZeroScript run instead of treating the feedback panel as a
+  resumes the active RLScript run instead of treating the feedback panel as a
   final answer.
 - Arena Agent command turns are recovered from command-bearing code blocks even
   when its message wrapper lacks semantic attributes, and Escape no longer
   dismisses the feedback panel during an active run.
 - Removed the duplicate Arena Agent destination from the Switch AI menu and added
   an explicit unstable warning when Arena Agent mode is open.
-- Claude now anchors the ZeroScript bar to the outer composer card so it no
+- Claude now anchors the RLScript bar to the outer composer card so it no
   longer covers the message placeholder.
 - The Roblox agent prompt now explicitly requires Luau and links to the Roblox
   Engine reference when authoritative API details are needed.
@@ -307,7 +307,7 @@ All notable changes to ZeroScript Free are documented here.
   painted a green check. The dedupe now keys on Qwen's stable per-turn id
   (`chat-response-message-<uuid>`, exposed as `itemKey`) instead of the index, so
   the collision cannot happen.
-- **Qwen: the ZeroScript bar covered the "Expand more models" submenu.** That
+- **Qwen: the RLScript bar covered the "Expand more models" submenu.** That
   fly-out is a separate body-portalled `.ant-dropdown` at a low z-index, not the
   main model dropdown, so the bar drew on top of it. Raised just that dropdown
   above the bar (scoped so other Ant menus and tooltips are untouched).
@@ -331,7 +331,7 @@ All notable changes to ZeroScript Free are documented here.
 ## [1.4.6] - 2026-07-19
 
 ### Fixed
-- **Kimi's login and "priority queue" popups were covered by the ZeroScript
+- **Kimi's login and "priority queue" popups were covered by the RLScript
   bar**: both render as full-screen fixed masks (`.login-modal-mask` and
   `.modal-mask`) rather than a standard `[role="dialog"]`, so the generic
   overlay probe used by other providers never caught them. The anchored bar
@@ -403,7 +403,7 @@ Adds a seventh AI provider (Meta AI) and fixes a Qwen tool-turn regression, plus
 further Studio-port recovery hardening and a friendlier system prompt.
 
 ### Added
-- **Meta AI (www.meta.ai) as a provider**: full ZeroScript support on Meta AI -
+- **Meta AI (www.meta.ai) as a provider**: full RLScript support on Meta AI -
   new `providers/meta.js`, manifest content script + host permissions, and the
   provider switcher entry. Handles Meta's React DOM: reasoning ("Réflexion")
   chain-of-thought is excluded from the read text, the interactive JSON viewer
@@ -484,7 +484,7 @@ third-party app silently hijacking Studio's MCP port.
   the process tree can't be read, nothing is killed (a healthy connection is
   never put at risk).
 - The extension now tells non-technical users to "Run start.bat" instead of
-  "Run python bridge.py" / "Run the ZeroScript bridge" in the offline panel,
+  "Run python bridge.py" / "Run the RLScript bridge" in the offline panel,
   popup, and startup banner, matching the one-click launcher the README ships.
 
 ## [1.4.1] - 2026-07-11
@@ -597,7 +597,7 @@ stale-pipe disconnects, MCP toggle turning off after a Studio update).
   into the visible reply when nested inside a paragraph. An image filename
   could corrupt result-chip detection.
 - Kimi: added detection of Kimi's own native "Agent" mode, which conflicts
-  with ZeroScript's command protocol; Start is disabled with a warning until
+  with RLScript's command protocol; Start is disabled with a warning until
   it's turned off. Fixed the hidden file-upload input not existing until the
   "+" menu is opened, raw command text leaking when nested/oversized, and
   normal model prose containing "try again" being misread as a site error.
@@ -613,12 +613,12 @@ stale-pipe disconnects, MCP toggle turning off after a Studio update).
   neutral "not run" state instead.
 - A tool's own in-body error (e.g. "Output of '...': Error executing code...")
   now settles the chip red instead of green, even when the tool didn't use
-  ZeroScript's own ERROR wrapper.
+  RLScript's own ERROR wrapper.
 - Regenerating a stopped command no longer briefly re-shows the old call's
   chip before the new one streams in.
 
 ### Changed
-- The version number next to the ZeroScript name in the panel is now small,
+- The version number next to the RLScript name in the panel is now small,
   plain text instead of a bordered green badge.
 - System prompt updated to cover multiple MCP servers: the model must call
   `list_mcp_servers` before assuming something outside Roblox is unsupported,
@@ -642,7 +642,7 @@ stale-pipe disconnects, MCP toggle turning off after a Studio update).
   MCP server / bridge offline).
 - Cross-provider: DeepSeek, Gemini, Kimi, GLM and Qwen composer menus, model
   pickers and tooltips (including GLM's search hover card and Kimi's model
-  popover) no longer render clipped or hidden behind ZeroScript's own
+  popover) no longer render clipped or hidden behind RLScript's own
   bar/pill/cover.
 - Cross-provider: a thinking model quoting command JSON in its own reasoning
   area no longer makes the tool chip flap between done/run/done (Gemini, Kimi,
@@ -691,7 +691,7 @@ stale-pipe disconnects, MCP toggle turning off after a Studio update).
 ## [1.0.0] - 2026-06-09
 
 ### Added
-- Initial public release of ZeroScript Free
+- Initial public release of RLScript Free
 - Browser extension for Chrome and Edge (DeepSeek chat integration)
 - Local Python bridge (`bridge.py` + `start.bat`) for Roblox Studio communication
 - Built-in MCP server support (no plugin required - activate directly in Roblox Studio)
@@ -712,5 +712,5 @@ stale-pipe disconnects, MCP toggle turning off after a Studio update).
   parsing, generation/stop detection, tool-result feedback and the provider
   switcher entries.
 - Added Arena Agent mode (arena.ai/agent), ChatGPT (chatgpt.com), and fixed
-  Grok's ZeroScript bar anchoring so it no longer overlaps the composer
+  Grok's RLScript bar anchoring so it no longer overlaps the composer
   placeholder.

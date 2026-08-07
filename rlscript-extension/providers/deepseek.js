@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // providers/deepseek.js - the DeepSeek (chat.deepseek.com) provider.
 // EVERYTHING that knows DeepSeek's DOM, quirks, and UI strings lives here; the
-// core (core/main.js) only ever talks to the ZSProvider interface this file
+// core (core/main.js) only ever talks to the RLProvider interface this file
 // exports. To support another AI site, write a sibling file exporting the same
 // interface and list it (instead of this one) in the manifest's content_scripts.
 //
@@ -19,7 +19,7 @@
 //    REASONING phase there is NO stop button / spinner at all - only text growth
 //    says "still alive".
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {}; // injected by core via init()
@@ -136,14 +136,14 @@ const ZSProvider = (() => {
   const assistantCount = () => assistantItems().length;
   const userCount = () => allItems().filter(isUserItem).length;
   // Scope to the SITE's composer only: never match RLScript's own injected
-  // UI (e.g. the settings textarea #zs-set-text in #zs-root). Otherwise on the
+  // UI (e.g. the settings textarea #rl-set-text in #rl-root). Otherwise on the
   // login/OAuth pages - which have no site textarea - getEditor() would return
   // our own panel's textarea, defeating the "not on a chat page" guard in the
   // send hooks and letting them swallow the DeepSeek "Log in" click (which is
   // itself a .ds-button--primary, the same selector as the send button).
   const getEditor = () => {
     const site = [...document.querySelectorAll(S.editor)].filter(
-      (e) => !e.closest("#zs-root")
+      (e) => !e.closest("#rl-root")
     );
     // Prefer the bottom composer over the inline message-EDIT box. When the user
     // edits a turn, DeepSeek mounts a bordered .ds-textarea up in the turn list;
@@ -166,12 +166,12 @@ const ZSProvider = (() => {
     const ed = getEditor();
     if (!ed) return;
     if (on) {
-      if (!ed.dataset.zsPlaceholder) ed.dataset.zsPlaceholder = ed.getAttribute("placeholder") || "";
+      if (!ed.dataset.rlPlaceholder) ed.dataset.rlPlaceholder = ed.getAttribute("placeholder") || "";
       ed.setAttribute("readonly", "");
       ed.setAttribute("placeholder", "⏳ Agent working… please wait");
     } else {
       ed.removeAttribute("readonly");
-      if (ed.dataset.zsPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.zsPlaceholder);
+      if (ed.dataset.rlPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.rlPlaceholder);
     }
   }
 
@@ -259,7 +259,7 @@ const ZSProvider = (() => {
     // Insert before the first REAL child (skip our own bar if already mounted,
     // otherwise we'd try to insert the bar before itself every frame).
     let before = box.firstElementChild;
-    if (before && before.id === "zs-bar") before = before.nextElementSibling;
+    if (before && before.id === "rl-bar") before = before.nextElementSibling;
     return { parent: box, before, inside: true }; // lives INSIDE the input box
   }
 
@@ -439,7 +439,7 @@ const ZSProvider = (() => {
     const think = item.querySelector(S.thinking);
     const thinkTxt = think ? think.textContent || "" : "";
     const replyTxt = [...item.querySelectorAll(S.markdown)]
-      .filter((m) => !m.closest(S.thinking) && !m.closest(".zs-chip"))
+      .filter((m) => !m.closest(S.thinking) && !m.closest(".rl-chip"))
       .map((m) => m.textContent)
       .join("");
     return thinkTxt + "\n" + replyTxt;
@@ -474,7 +474,7 @@ const ZSProvider = (() => {
     const thinkTxt = think ? (think.textContent || "") : "";
     if (!thinkTxt.trim().length) return false; // not reasoning
     const replyLen = [...item.querySelectorAll(S.markdown)]
-      .filter((m) => !m.closest(S.thinking) && !m.closest(".zs-chip"))
+      .filter((m) => !m.closest(S.thinking) && !m.closest(".rl-chip"))
       .reduce((n, m) => n + (m.textContent || "").length, 0);
     if (replyLen !== 0) return false; // already answering
     if (turnHalted(item)) return false; // halted (manual / forced stop)
@@ -559,7 +559,7 @@ const ZSProvider = (() => {
       if (!it) return { th: 0, rp: 0 };
       const th = it.querySelector(S.thinking);
       const rp = [...it.querySelectorAll(S.markdown)]
-        .filter((m) => !m.closest(S.thinking) && !m.closest(".zs-chip"))
+        .filter((m) => !m.closest(S.thinking) && !m.closest(".rl-chip"))
         .reduce((n, m) => n + (m.textContent || "").length, 0);
       return { th: th ? (th.textContent || "").trim().length : 0, rp };
     } catch { return {}; }
@@ -730,7 +730,7 @@ const ZSProvider = (() => {
     const arr = new Uint8Array(bin.length);
     for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
     const ext = mime.includes("png") ? "png" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    return new File([arr], `rlscript_${Date.now()}_${i}.${ext}`, { type: mime });
   }
 
   // Staged composer attachments. DeepSeek's file-list uses fully HASHED classes
@@ -745,10 +745,10 @@ const ZSProvider = (() => {
     try {
       return [...document.querySelectorAll("img")].filter(
         (im) => !im.closest(S.chatItem) &&
-          // blob: = pending local preview; the alt (our "zeroscript_..." filename)
+          // blob: = pending local preview; the alt (our "rlscript_..." filename)
           // survives once the upload replaces the blob src with a CDN url, so the
           // idempotency/presence checks keep matching after upload completes.
-          (/^blob:/.test(im.getAttribute("src") || "") || /^zeroscript_/.test(im.getAttribute("alt") || "")));
+          (/^blob:/.test(im.getAttribute("src") || "") || /^rlscript_/.test(im.getAttribute("alt") || "")));
     } catch { return []; }
   };
 
@@ -874,7 +874,7 @@ const ZSProvider = (() => {
   // children from the start marker through the end marker. Returns where to
   // insert the chip: {parent, ref} - or null if no tool block was found.
   function findToolBlockSpot(item, chip) {
-    const P = ZSParse;
+    const P = RLParse;
     const hasStart = (t) => P.LUA_START_RE.test(t) || t.includes("###mcp_tool###");
     const hasEnd = (t) => P.LUA_END_RE.test(t) || t.includes("###end_mcp_tool###") || t.includes("###end-mcp_tool###");
     const isJson = (t) => /\{\s*"(?:command|tool)"\s*:/.test(t);
@@ -907,7 +907,7 @@ const ZSProvider = (() => {
           let hide = kids[k];
           const wrap = hide.closest("[class*='code'], .md-code-block");
           if (wrap && container.contains(wrap) && wrap !== container) hide = wrap;
-          hide.classList.add("zs-tool-hide");
+          hide.classList.add("rl-tool-hide");
           if (!ref && hide.parentElement) { parent = hide.parentElement; ref = hide; }
         }
         i = runEnd + 1;
@@ -935,9 +935,9 @@ const ZSProvider = (() => {
     init({ diag: d } = {}) {
       if (d) diag = d;
       // Version beacon: stamp the loaded build onto <html> so a reload can be
-      // confirmed from the page (read document.documentElement.dataset.zsDsVer).
+      // confirmed from the page (read document.documentElement.dataset.rlDsVer).
       // BUMP DS_VER on meaningful deepseek.js changes worth verifying live.
-      try { document.documentElement.setAttribute("data-zs-ds-ver", "2026-07_vision-badge-priority"); } catch {}
+      try { document.documentElement.setAttribute("data-rl-ds-ver", "2026-07_vision-badge-priority"); } catch {}
     },
     // turns
     allItems, isUserItem, isAssistantItem, itemText, classifyText,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // providers/kimi.js - the Kimi (www.kimi.com, Moonshot AI) provider.
-// Exports the same ZSProvider interface as providers/deepseek.js and gemini.js;
+// Exports the same RLProvider interface as providers/deepseek.js and gemini.js;
 // the core (core/main.js) is provider-agnostic. To DISABLE Kimi support, remove
 // this file from manifest.json (and its URL from background.js PROVIDER_URLS +
 // main.js AI_SITES).
@@ -25,7 +25,7 @@
 //    CodeMirror virtualization), so the command JSON survives intact.
 //  - Conversation URL is /chat/<id>; a fresh chat is exactly "/".
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {}; // injected by core via init()
@@ -104,7 +104,7 @@ const ZSProvider = (() => {
   // Walk an element's text, skipping our own chip and any excluded subtree.
   function textWithout(root, excludeSel) {
     if (!root) return "";
-    const skip = ".zs-chip" + (excludeSel ? ", " + excludeSel : "");
+    const skip = ".rl-chip" + (excludeSel ? ", " + excludeSel : "");
     let t = "";
     const walk = (n) => {
       if (n.nodeType === 3) { t += n.nodeValue; return; }
@@ -146,13 +146,13 @@ const ZSProvider = (() => {
   const assistantCount = () => assistantItems().length;
   const userCount = () => document.querySelectorAll(S.userItem).length;
   // Scope to the SITE's composer only: skip RLScript's own injected UI (the
-  // settings textarea #zs-set-text in #zs-root). On login/OAuth pages with no
+  // settings textarea #rl-set-text in #rl-root). On login/OAuth pages with no
   // site editor this returns null, keeping the "not on a chat page" guard in
   // the send hooks intact (otherwise our own textarea would defeat it and the
   // hooks could swallow the site's login button).
   const getEditor = () => {
     const site = [...document.querySelectorAll(S.editor)].filter(
-      (e) => !e.closest("#zs-root")
+      (e) => !e.closest("#rl-root")
     );
     // Prefer the bottom composer over the inline message-EDIT box. Editing a turn
     // mounts a second .chat-input-editor up in the message list; it precedes the
@@ -198,10 +198,10 @@ const ZSProvider = (() => {
 
   // Deliberately NO barMount(): an in-flow mount (as DeepSeek/Gemini do) is
   // unsafe on Kimi because every candidate parent is inside Vue's reconciled
-  // subtree - inserting our foreign #zs-bar into `.chat-editor` makes Vue's next
+  // subtree - inserting our foreign #rl-bar into `.chat-editor` makes Vue's next
   // diff reuse the bar node as a host and nest the composer editor INSIDE it,
   // breaking typing entirely (observed live). Instead we expose barAnchor():
-  // the core keeps the bar in its own #zs-root (position:fixed) but positions it
+  // the core keeps the bar in its own #rl-root (position:fixed) but positions it
   // to hug the composer card's top edge at full width and reserves that strip
   // with padding-top, giving the integrated DeepSeek look with zero DOM
   // insertion into Vue's tree. The element to hug is the rounded composer card
@@ -288,7 +288,7 @@ const ZSProvider = (() => {
     _locked = on;
     const ed = getEditor();
     if (on) {
-      if (ed) { ed.setAttribute("contenteditable", "false"); ed.setAttribute("data-zs-locked", "1"); }
+      if (ed) { ed.setAttribute("contenteditable", "false"); ed.setAttribute("data-rl-locked", "1"); }
       applyLockedPlaceholder();
       // Vue recreates the placeholder node after each inject/clear cycle, so watch
       // the composer subtree and re-assert our text the instant it reappears (no
@@ -302,7 +302,7 @@ const ZSProvider = (() => {
     } else {
       if (_phObs) { try { _phObs.disconnect(); } catch {} _phObs = null; }
       if (_phTimer) { clearInterval(_phTimer); _phTimer = null; }
-      if (ed) { ed.setAttribute("contenteditable", "true"); ed.removeAttribute("data-zs-locked"); }
+      if (ed) { ed.setAttribute("contenteditable", "true"); ed.removeAttribute("data-rl-locked"); }
       // Restore the site's own placeholder text on whatever node is current now.
       const ph = placeholderEl();
       if (ph && _origPlaceholder != null) ph.textContent = _origPlaceholder;
@@ -330,7 +330,7 @@ const ZSProvider = (() => {
   // ── Generation detection ──────────────────────────────────────────────────
   function streamText(item) {
     const md = bodyEl(item);
-    return md ? textWithout(md, ".zs-chip") : "";
+    return md ? textWithout(md, ".rl-chip") : "";
   }
   const streamLen = (item) =>
     streamText(item === undefined ? lastAssistant() : item).length;
@@ -480,7 +480,7 @@ const ZSProvider = (() => {
   const MODAL_MASK_SEL = ".login-modal-mask, .modal-mask";
   function overlayBlocking() {
     for (const mask of document.querySelectorAll(MODAL_MASK_SEL)) {
-      if (mask.closest("#zs-root")) continue;
+      if (mask.closest("#rl-root")) continue;
       const s = getComputedStyle(mask);
       if (s.display === "none" || s.visibility === "hidden" || parseFloat(s.opacity) === 0) continue;
       const r = mask.getBoundingClientRect();
@@ -588,7 +588,7 @@ const ZSProvider = (() => {
     const arr = new Uint8Array(bin.length);
     for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
     const ext = mime.includes("png") ? "png" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    return new File([arr], `rlscript_${Date.now()}_${i}.${ext}`, { type: mime });
   }
   // The PENDING upload's thumbnail (`.image-thumbnail`, in the composer's
   // `.carousel-scroll`). Kimi ALSO keeps every SENT image's `.image-thumbnail`
@@ -709,7 +709,7 @@ const ZSProvider = (() => {
   // survive in textContent). Vue re-renders the markdown subtree on stream
   // updates, so - like Gemini - hide every `.segment-code` in the reply carrying
   // a command shape AND mark the assistant turn (.segment-assistant, which keeps
-  // its identity) with .zs-cmd-mask so the overlay.css rule re-hides recreated
+  // its identity) with .rl-cmd-mask so the overlay.css rule re-hides recreated
   // wrappers with zero flash. Also catch a stray bare inline command paragraph.
   const CMD_SHAPE = /"(?:command|tool)"\s*:\s*"|###\s*lua|###mcp_tool###/i;
   // A block whose text STARTS with a command (optionally behind a ```json fence).
@@ -722,20 +722,20 @@ const ZSProvider = (() => {
     if (!md) return null;
     let hidAny = null;
     md.querySelectorAll(S.codeWrap).forEach((cw) => {
-      if (cw.closest(".zs-chip") || cw.closest(S.thinking)) return; // never a drafted-in-reasoning block
+      if (cw.closest(".rl-chip") || cw.closest(S.thinking)) return; // never a drafted-in-reasoning block
       if (CMD_SHAPE.test(cw.textContent || "")) {
-        cw.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        cw.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         hidAny = hidAny || { parent: cw.parentElement, ref: cw };
       }
     });
     [...md.children].forEach((el) => {
-      if (el.classList.contains("zs-chip") || el.closest(S.codeWrap) ||
+      if (el.classList.contains("rl-chip") || el.closest(S.codeWrap) ||
           el.matches(S.thinking) || el.querySelector(S.thinking) ||
           el.querySelector(S.codeWrap)) return;
       const t = el.textContent || "";
       if (t.length < 600 && CMD_SHAPE.test(t)) {
-        el.classList.add("zs-tool-hide");
+        el.classList.add("rl-tool-hide");
         hidAny = hidAny || { parent: el.parentElement, ref: el };
       }
     });
@@ -747,11 +747,11 @@ const ZSProvider = (() => {
     // and hide any whose text STARTS with a command (so it IS the command, never a
     // prose answer that merely quotes one), at any length.
     md.querySelectorAll(".paragraph, p").forEach((el) => {
-      if (el.classList.contains("zs-tool-hide") || el.closest(".zs-chip") ||
+      if (el.classList.contains("rl-tool-hide") || el.closest(".rl-chip") ||
           el.closest(S.codeWrap) || el.closest(S.thinking)) return;
       if (STARTS_CMD.test((el.textContent || "").trim())) {
-        el.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        el.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         hidAny = hidAny || { parent: el.parentElement, ref: el };
       }
     });

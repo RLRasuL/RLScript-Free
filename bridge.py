@@ -76,7 +76,7 @@ def _enable_ansi_colors():
 
 
 HOST = "127.0.0.1"
-# Keep in sync with zeroscript-extension/manifest.json "version" - printed at
+# Keep in sync with rlscript-extension/manifest.json "version" - printed at
 # startup so a user's terminal output alone tells us which build they're on.
 BRIDGE_VERSION = "1.5.2"
 PORT = int(os.environ.get("ZS_BRIDGE_PORT", "17613"))
@@ -1018,7 +1018,7 @@ class MCPClient:
                 self._request("initialize", {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
-                    "clientInfo": {"name": "zeroscript-bridge", "version": "1.0"},
+                    "clientInfo": {"name": "rlscript-bridge", "version": "1.0"},
                 }, timeout=30)
                 self._notify("notifications/initialized")
                 # Some MCP servers (notably Roblox's StudioMCP) advertise 0 tools at

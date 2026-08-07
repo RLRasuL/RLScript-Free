@@ -1,4 +1,4 @@
-﻿# Local-only folders
+# Local-only folders
 Compressed/
 Deprecated/
 ExtensionPresentation/
@@ -10,7 +10,7 @@ docs/
 
 # Generated per-build (bridge self-update build id + extension build marker)
 build.json
-zeroscript-extension/build.json
+rlscript-extension/build.json
 
 # Local dev / diagnostic tools
 probe.py

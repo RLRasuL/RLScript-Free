@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // providers/qwen.js - the Qwen (chat.qwen.ai, Alibaba Cloud) provider.
-// Exports the same ZSProvider interface as providers/deepseek.js and kimi.js;
+// Exports the same RLProvider interface as providers/deepseek.js and kimi.js;
 // the core (core/main.js) is provider-agnostic. To DISABLE Qwen support, remove
 // this file from manifest.json (and its URL from background.js PROVIDER_URLS +
 // main.js AI_SITES).
@@ -31,7 +31,7 @@
 //    through to S.composer). NOT in-flow barMount: `.message-input-container` is
 //    React-height-clamped + overflow:hidden, so a mounted child clips the input.
 // eslint-disable-next-line no-unused-vars
-const ZSProvider = (() => {
+const RLProvider = (() => {
   "use strict";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {};
@@ -93,7 +93,7 @@ const ZSProvider = (() => {
   // parsed" error). Both symptoms are this one disposal race.
   // Fix: while a block is still rendered (during streaming it is in view with ALL
   // view-lines present - Monaco does NOT virtualize, only DISPOSES off-screen), a
-  // MutationObserver snapshots its joined source into `pre.dataset.zsCode`,
+  // MutationObserver snapshots its joined source into `pre.dataset.rlCode`,
   // keeping the LONGEST capture. After disposal the full source survives in the
   // attribute, so codeText() below always returns the complete code.
   const codeLinesText = (pre) => {
@@ -103,13 +103,13 @@ const ZSProvider = (() => {
   function snapshotCode(pre) {
     const live = codeLinesText(pre);
     if (!live) return;
-    const prev = pre.dataset.zsCode || "";
-    if (live.length > prev.length) pre.dataset.zsCode = live;
+    const prev = pre.dataset.rlCode || "";
+    if (live.length > prev.length) pre.dataset.rlCode = live;
   }
   // Full code for a block: the cached snapshot if present/longer (survives
   // disposal), else the live view-lines, else raw textContent as a last resort.
   function codeText(pre) {
-    const cached = pre.dataset.zsCode || "";
+    const cached = pre.dataset.rlCode || "";
     const live = codeLinesText(pre);
     const best = cached.length >= live.length ? cached : live;
     return best || pre.textContent || "";
@@ -151,13 +151,13 @@ const ZSProvider = (() => {
   // ── Network tap (authoritative reply text) ─────────────────────────────────
   // providers/qwen-net.js (MAIN world) publishes the latest streamed assistant
   // reply - the RAW markdown, which Monaco's DOM cannot corrupt - into the
-  // `#zs-qwen-net` node as JSON { rid, text, done, t }. netLatest() reads it.
+  // `#rl-qwen-net` node as JSON { rid, text, done, t }. netLatest() reads it.
   // This is the SOURCE OF TRUTH for the latest assistant turn's text: the DOM
   // (Monaco) disposes/partials code blocks, so a command read from the DOM can be
   // truncated, but the network text is always the model's verbatim output.
   function netLatest() {
     try {
-      const n = document.getElementById("zs-qwen-net");
+      const n = document.getElementById("rl-qwen-net");
       if (!n || !n.textContent) return null;
       const o = JSON.parse(n.textContent);
       return o && typeof o.text === "string" ? o : null;
@@ -219,7 +219,7 @@ const ZSProvider = (() => {
     !!item && item.classList && item.classList.contains("qwen-chat-message-dual-message");
   const latestIsDual = () => isDualItem(lastAssistant());
 
-  // Walk element text, skipping .zs-chip and any excluded selector.
+  // Walk element text, skipping .rl-chip and any excluded selector.
   // Special-cases `pre.qwen-markdown-code`: Monaco editor lines are separate
   // sibling divs with no inter-line text nodes, so plain textContent collapses
   // the whole block onto one line. Uses codeText() so a DISPOSED block still
@@ -227,7 +227,7 @@ const ZSProvider = (() => {
   function textWithout(root, excludeSel) {
     if (!root) return "";
     const _t0 = (self.performance || Date).now(); // [TRACE]
-    const skip = ".zs-chip" + (excludeSel ? ", " + excludeSel : "");
+    const skip = ".rl-chip" + (excludeSel ? ", " + excludeSel : "");
     let t = "";
     let _nodes = 0; // [TRACE]
     const walk = (n) => {
@@ -303,11 +303,11 @@ const ZSProvider = (() => {
   const userCount = () => document.querySelectorAll(S.userItem).length;
 
   // Scope to the site's composer only; skip RLScript's own injected textarea
-  // (#zs-set-text inside #zs-root) so login pages without a site editor return
+  // (#rl-set-text inside #rl-root) so login pages without a site editor return
   // null and the send-hook guards stay intact.
   const getEditor = () => {
     for (const e of document.querySelectorAll(S.editor)) {
-      if (!e.closest("#zs-root")) return e;
+      if (!e.closest("#rl-root")) return e;
     }
     return null;
   };
@@ -384,7 +384,7 @@ const ZSProvider = (() => {
   };
 
   // Anchored bar (the integrated look as it was before the barMount experiment):
-  // keep #zs-bar in #zs-root (position:fixed) and hug it to the composer's top
+  // keep #rl-bar in #rl-root (position:fixed) and hug it to the composer's top
   // edge. We do NOT mount in-flow: `.message-input-container` (the rounded grey
   // card) is React-height-clamped + overflow:hidden, so a child clips the input.
   // The editor is not inside `.chat-message-input-fixed-container` (height:0), so
@@ -435,10 +435,10 @@ const ZSProvider = (() => {
       if (_origPlaceholder == null) _origPlaceholder = ed.placeholder || "";
       ed.setAttribute("placeholder", LOCK_MSG);
       ed.setAttribute("readonly", "");
-      ed.setAttribute("data-zs-locked", "1");
+      ed.setAttribute("data-rl-locked", "1");
     } else {
       ed.removeAttribute("readonly");
-      ed.removeAttribute("data-zs-locked");
+      ed.removeAttribute("data-rl-locked");
       if (_origPlaceholder != null) {
         ed.setAttribute("placeholder", _origPlaceholder);
         _origPlaceholder = null;
@@ -483,7 +483,7 @@ const ZSProvider = (() => {
       if (net) return net;
     }
     const bd = bodyEl(item);
-    return bd ? textWithout(bd, ".zs-chip") : "";
+    return bd ? textWithout(bd, ".rl-chip") : "";
   }
   const streamLen = (item) =>
     streamText(item === undefined ? lastAssistant() : item).length;
@@ -649,7 +649,7 @@ const ZSProvider = (() => {
     // Mark the response now in the tap as consumed: we are replying to it, so the
     // tap is stale until Qwen opens the next response (see netCurrent()).
     rememberSentResponse();
-    const wasLocked = !!ed.getAttribute("data-zs-locked");
+    const wasLocked = !!ed.getAttribute("data-rl-locked");
     if (wasLocked) ed.removeAttribute("readonly");
     try {
       if (_nativeSetter) { _nativeSetter.call(ed, text); }
@@ -708,7 +708,7 @@ const ZSProvider = (() => {
     const arr = new Uint8Array(bin.length);
     for (let j = 0; j < bin.length; j++) arr[j] = bin.charCodeAt(j);
     const ext = mime.includes("png") ? "png" : "jpg";
-    return new File([arr], `zeroscript_${Date.now()}_${i}.${ext}`, { type: mime });
+    return new File([arr], `rlscript_${Date.now()}_${i}.${ext}`, { type: mime });
   }
   // The PENDING upload's preview: Qwen mounts each staged image as
   // `img.vision-item-image` in the composer's `.file-card-list`. A SENT image
@@ -801,7 +801,7 @@ const ZSProvider = (() => {
   // ── Tool-block camouflage ─────────────────────────────────────────────────
   // Each fenced code block is `pre.qwen-markdown-code`. React re-renders the
   // markdown subtree on stream updates, so mark the assistant turn with
-  // .zs-cmd-mask and let the CSS rule (overlay.css) re-hide recreated pre
+  // .rl-cmd-mask and let the CSS rule (overlay.css) re-hide recreated pre
   // elements with no flash.
   const CMD_SHAPE = /"(?:command|tool)"\s*:\s*"|###\s*lua|###mcp_tool###/i;
   function findToolBlockSpot(item) {
@@ -817,21 +817,21 @@ const ZSProvider = (() => {
       netHasCmd = !!(net && CMD_SHAPE.test(net));
     }
     bd.querySelectorAll(S.codeWrap).forEach((cw) => {
-      if (cw.closest(".zs-chip")) return;
+      if (cw.closest(".rl-chip")) return;
       // codeText() prefers the dataset cache (survives Monaco disposal) and uses
       // Monaco view-lines otherwise (avoids the header "lang1" textContent prefix).
       const text = codeText(cw);
       if (netHasCmd || CMD_SHAPE.test(text)) {
-        cw.classList.add("zs-tool-hide");
-        item.classList.add("zs-cmd-mask");
+        cw.classList.add("rl-tool-hide");
+        item.classList.add("rl-cmd-mask");
         hidAny = hidAny || { parent: cw.parentElement, ref: cw };
       }
     });
     [...bd.children].forEach((el) => {
-      if (el.classList.contains("zs-chip") || el.closest(S.codeWrap) || el.querySelector(S.codeWrap)) return;
+      if (el.classList.contains("rl-chip") || el.closest(S.codeWrap) || el.querySelector(S.codeWrap)) return;
       const t = el.textContent || "";
       if (t.length < 600 && CMD_SHAPE.test(t)) {
-        el.classList.add("zs-tool-hide");
+        el.classList.add("rl-tool-hide");
         hidAny = hidAny || { parent: el.parentElement, ref: el };
       }
     });
@@ -840,12 +840,12 @@ const ZSProvider = (() => {
 
   // ── Version beacon + unstable-mode warning ────────────────────────────────
   // VERSION beacon: a content script shares the page DOM, so we stamp the loaded
-  // build onto <html data-zs-qwen-ver>; read it from the page to confirm which
+  // build onto <html data-rl-qwen-ver>; read it from the page to confirm which
   // qwen.js is actually running (the isolated-world closure can't be read直接).
   // BUMP this whenever qwen.js changes in a way worth verifying live.
   const QWEN_VER = "2026-08_per-model-vision4";
   function setVersionBeacon() {
-    try { document.documentElement.setAttribute("data-zs-qwen-ver", QWEN_VER); } catch {}
+    try { document.documentElement.setAttribute("data-rl-qwen-ver", QWEN_VER); } catch {}
   }
 
   // NOTE: an "⚠ unstable" badge used to be injected next to Qwen's "Auto"/"Think"
@@ -874,7 +874,7 @@ const ZSProvider = (() => {
   // shows. So we scan every open dropdown, cache name→capability (persisted to
   // localStorage so it survives reloads), seed the models already confirmed, and
   // Only explicitly deny models whose description says they are text-only.
-  const MODEL_VIS_LS = "zsQwenModelVision3"; // bumped: old key may hold a stale capability decision
+  const MODEL_VIS_LS = "rlQwenModelVision3"; // bumped: old key may hold a stale capability decision
   const modelVis = new Map([
     // Seed. Some of these are USER-CONFIRMED, not derivable from the description:
     // Qwen3.8-Max-Preview reads images (user-confirmed 2026-07) yet its selector

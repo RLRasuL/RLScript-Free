@@ -53,7 +53,7 @@ let studioApp = null;
 let studioProc = null;
 
 function log(...a) {
-  console.log("[zs-bg]", ...a);
+  console.log("[rl-bg]", ...a);
 }
 
 // ── WebSocket lifecycle ─────────────────────────────────────────────────
@@ -227,7 +227,7 @@ function handleBridgeMessage(msg) {
     if (Array.isArray(msg.tools)) toolsCache = msg.tools;
     if (Array.isArray(msg.servers)) {
       serversCache = msg.servers;
-      chrome.storage.local.set({ zsLastServers: msg.servers });
+      chrome.storage.local.set({ rlLastServers: msg.servers });
     }
     broadcastStatus();
     return;
@@ -253,7 +253,7 @@ function handleBridgeMessage(msg) {
     if (Array.isArray(msg.tools)) toolsCache = msg.tools;
     if (Array.isArray(msg.servers)) {
       serversCache = msg.servers;
-      chrome.storage.local.set({ zsLastServers: msg.servers });
+      chrome.storage.local.set({ rlLastServers: msg.servers });
     }
     mcpAlive = !!msg.mcp_alive;
     resolvePending(msg.id, { ok: true, tools: toolsCache });
@@ -305,7 +305,7 @@ function failAllPending(reason) {
 
 // ── status push to any open DeepSeek tab + popup ─────────────────────────
 function statusObj() {
-  return { type: "zs-status", connected, mcpAlive, studio: studioConnected, studioApp, studioProc, tools: toolsCache.length, servers: serversCache };
+  return { type: "rl-status", connected, mcpAlive, studio: studioConnected, studioApp, studioProc, tools: toolsCache.length, servers: serversCache };
 }
 
 function broadcastStatus() {
@@ -404,18 +404,18 @@ async function askAi(question, modelOverride) {
   const questionText = String(question || "").trim();
   if (!questionText) return { ok: false, error: "question is required." };
   const cfg = await new Promise((resolve) => {
-    chrome.storage.local.get(["zsAskAiProvider", "zsAskAiModel", "zsAskAiKey"], resolve);
+    chrome.storage.local.get(["rlAskAiProvider", "rlAskAiModel", "rlAskAiKey"], resolve);
   });
-  const provider = String(cfg.zsAskAiProvider || "").trim().toLowerCase();
+  const provider = String(cfg.rlAskAiProvider || "").trim().toLowerCase();
   const def = ASK_AI_DEFAULTS[provider];
   if (!def) {
     return { ok: false, error: "no AI-to-AI provider configured. Open the RLScript popup, pick a provider and enter your API key (AI-to-AI help section)." };
   }
-  const key = String(cfg.zsAskAiKey || "").trim();
+  const key = String(cfg.rlAskAiKey || "").trim();
   if (!key) {
     return { ok: false, error: "the " + provider + " API key is not set. Open the RLScript popup (AI-to-AI help) and save your key." };
   }
-  const model = String(modelOverride || "").trim() || String(cfg.zsAskAiModel || "").trim() || def.model;
+  const model = String(modelOverride || "").trim() || String(cfg.rlAskAiModel || "").trim() || def.model;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60000);
   try {
@@ -480,7 +480,7 @@ async function askAi(question, modelOverride) {
 // build ids over the GitHub API alone. It cannot replace its own files, so
 // when a newer build exists it flags the badge, toasts every open chat, and
 // downloads the new zip; the bridge (when started) applies it for real.
-const EXT_UPDATE_ALARM = "zs-ext-update-check";
+const EXT_UPDATE_ALARM = "rl-ext-update-check";
 const EXT_UPDATE_PERIOD_MIN = 360; // 6h
 const EXT_UPDATE_API = "https://api.github.com/repos/RLRasuL/RLScript-Free/releases/latest";
 const EXT_BUILD_MARKER = chrome.runtime.getURL("build.json");
@@ -545,7 +545,7 @@ function extNotifyTabs(state) {
   for (const pat of PROVIDER_URLS) {
     chrome.tabs.query({ url: pat }, (tabs) => {
       for (const t of tabs) {
-        try { chrome.tabs.sendMessage(t.id, { type: "zs-ext-update", ...state }); } catch {}
+        try { chrome.tabs.sendMessage(t.id, { type: "rl-ext-update", ...state }); } catch {}
       }
     });
   }
@@ -555,9 +555,9 @@ async function extUpdateCron() {
   const r = await extCheckUpdate();
   if (!r.ok) return;
   if (r.status === "update_available") {
-    const prev = (await chrome.storage.local.get(["zsExtUpdateSeen"]).catch(() => ({}))).zsExtUpdateSeen || "";
+    const prev = (await chrome.storage.local.get(["rlExtUpdateSeen"]).catch(() => ({}))).rlExtUpdateSeen || "";
     if (prev !== r.build) {
-      chrome.storage.local.set({ zsExtUpdateSeen: r.build });
+      chrome.storage.local.set({ rlExtUpdateSeen: r.build });
       chrome.action.setBadgeText({ text: "!" });
       chrome.action.setBadgeBackgroundColor({ color: "#f87171" });
       if (r.downloadUrl) {
@@ -647,7 +647,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(r);
         break;
       }
-      case "zs-download": {
+      case "rl-download": {
         try {
           const id = await chrome.downloads.download({ url: String(msg.url || ""), conflictAction: "overwrite" });
           sendResponse({ ok: true, downloadId: id });
@@ -656,11 +656,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         break;
       }
-      case "zs-open-menu": {
+      case "rl-open-menu": {
         // Popup Settings: open the in-page RLScript panel on the given tab
         // (or create one from msg.url). A tab opened BEFORE the last extension
         // update still runs the OLD content script, which silently ignores
-        // zs-open-menu - that's exactly why Settings used to close the popup
+        // rl-open-menu - that's exactly why Settings used to close the popup
         // and then do nothing on stale tabs. So probe for a real answer and
         // reload the tab once before giving up.
         const run = async () => {
@@ -692,16 +692,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 chrome.runtime.onStartup.addListener(() => { connect(); extUpdateCron(); });
 chrome.runtime.onInstalled.addListener(() => { connect(); extUpdateCron(); });
 
-const zsSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rlSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function extOpenMenuInTab(tabId) {
-  // Probe the tab's content script. "ok" = it answered zs-open-menu (this
+  // Probe the tab's content script. "ok" = it answered rl-open-menu (this
   // build); "stale" = a receiver exists but did not answer (pre-update build);
   // "missing" = not injected yet (page still loading, or a host we don't run
   // on - never reload for pure "missing", that would only loop).
   const probe = async () => {
     try {
-      const resp = await chrome.tabs.sendMessage(tabId, { type: "zs-open-menu" });
+      const resp = await chrome.tabs.sendMessage(tabId, { type: "rl-open-menu" });
       return resp && resp.ok ? "ok" : "stale";
     } catch (e) {
       return "missing";
@@ -712,7 +712,7 @@ async function extOpenMenuInTab(tabId) {
       const s = await probe();
       if (s === "ok") return { ok: true };
       if (s === "stale") break; // old build -> reload ONCE, then it must answer
-      await zsSleep(500);
+      await rlSleep(500);
     }
     if (round === 1) break; // never a second reload
     try {

@@ -14,15 +14,15 @@
 // It wraps window.fetch in the PAGE world (a content script's isolated-world
 // fetch wrap would not see the app's calls), accumulates the `answer`-phase delta
 // content per streamed response, and publishes the latest response's full text +
-// done flag into a DOM node (#zs-qwen-net, JSON textContent) that the isolated
+// done flag into a DOM node (#rl-qwen-net, JSON textContent) that the isolated
 // content script can read. Registered as a content script with "world": "MAIN",
 // run_at "document_start" so the wrap is installed before Qwen's app uses fetch.
 (() => {
   "use strict";
-  if (window.__zsQwenNet) return;
-  window.__zsQwenNet = true;
+  if (window.__rlQwenNet) return;
+  window.__rlQwenNet = true;
 
-  const NODE_ID = "zs-qwen-net";
+  const NODE_ID = "rl-qwen-net";
   const node = () => {
     let n = document.getElementById(NODE_ID);
     if (!n) {
