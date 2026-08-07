@@ -9,6 +9,17 @@ const DEFAULT_AI_URL = "https://chat.deepseek.com/";
 
 document.getElementById("ver").textContent = `v${chrome.runtime.getManifest().version}`;
 
+// Clicking the extension icon opens this popup AND closes the in-page RLScript
+// Settings panel (the popup's own Settings button reopens it when needed).
+// Target the active supported tab first, then any supported tab.
+chrome.tabs.query({}, (tabs) => {
+  const active = tabs.find((t) => t.active && t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
+  const anySupported = active || tabs.find((t) => t.url && SUPPORTED_HOSTS.some((h) => t.url.includes(h)));
+  if (anySupported) {
+    try { chrome.tabs.sendMessage(anySupported.id, { type: "zs-close-menu" }); } catch {}
+  }
+});
+
 function render(s) {
   const dot = document.getElementById("dot");
   const state = document.getElementById("state");
@@ -206,7 +217,7 @@ chrome.storage.local.get(["zsAskAiProvider", "zsAskAiModel", "zsAskAiKey"], (r) 
 // ── Syntax Shield (fix_script safety gate) ───────────────────────────────
 const shieldEl = document.getElementById("syntax-shield");
 chrome.storage.local.get(["zsSyntaxShield"], (r) => {
-  shieldEl.checked = r.zsSyntaxShield !== false;
+  shieldEl.checked = r.zsSyntaxShield === true;
 });
 shieldEl.addEventListener("change", () => {
   chrome.storage.local.set({ zsSyntaxShield: shieldEl.checked });

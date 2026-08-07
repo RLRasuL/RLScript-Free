@@ -316,7 +316,7 @@ const ZS = (() => {
           }),
           syntax_shield: Object.freeze({
             type: "boolean",
-            description: "Optional. Block/bracket balance check before every write; a rewrite that would unbalance the script is skipped and reported, never written. Defaults to the user's Syntax Shield setting (on). Pass false only when the user explicitly asks to disable it."
+            description: "Optional. Block/bracket balance check before every write; a rewrite that would unbalance the script is skipped and reported, never written. Defaults to the user's Syntax Shield setting (off). Pass true only when the user explicitly asks to enable it."
           })
         }),
         required: Object.freeze(["script_path"])

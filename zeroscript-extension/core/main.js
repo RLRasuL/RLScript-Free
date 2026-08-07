@@ -118,7 +118,7 @@
     { name: "Grok", url: "https://grok.com/" },
     { name: "Claude", url: "https://claude.ai/new", badge: "BEST" },
     { name: "ChatGPT", url: "https://chatgpt.com/" },
-    { name: "Copilot", url: "https://copilot.microsoft.com/" },
+    { name: "Copilot", url: "https://copilot.microsoft.com/", wip: true },
   ];
 
   const A = {
@@ -199,7 +199,7 @@
   // Syntax Shield default from the popup setting (true unless the user turned
   // it off). fix_script consults this when the AI does not pass an explicit
   // syntax_shield argument.
-  let syntaxShieldDefault = true;
+  let syntaxShieldDefault = false;
   // Auto-approve refactors: when ON, fix_script applies + writes immediately
   // (Studio-native undo); when OFF (default), fix_script only PROPOSES and the
   // user must review and click Apply in the panel. Persisted by the Refactor
@@ -3785,6 +3785,7 @@ return result`;
     let root, bar, dot, brandEl, stateEl, actionBtn, stopBtn, switchBtn, supportBtn, discordEl, menuEl, unstableEl;
     let cover, coverRaf, barRaf;
     let openMenuFn = null; // set by build(); lets the popup force the panel open via runtime message
+    let closeMenuFn = null; // set by build(); lets the popup's icon click close the open panel
     let bridgeOk = false, studioDown = false, placeDown = false, appDown = false, addonOk = false, studioProcUp = false;
     let wasConnected = false, bridgeBannerEl = null;
     // Refactor review selection + toast, declared here (not below buildMenu)
@@ -3871,6 +3872,7 @@ return result`;
       switchBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleMenu(false); });
       supportBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleMenu(true); });
       openMenuFn = (toSupport) => { if (menuEl.hidden) toggleMenu(toSupport); };
+      closeMenuFn = () => { if (menuEl && !menuEl.hidden) menuEl.hidden = true; };
       document.addEventListener("click", (e) => {
         if (menuEl.hidden) return;
         if (!menuEl.contains(e.target) && !switchBtn.contains(e.target) && !supportBtn.contains(e.target))
@@ -3923,7 +3925,7 @@ return result`;
       chrome.storage.local.get(["zsAllowAiTools", "zsAllowAiSkills", "zsDisabledTools", "zsDisabledSkills", "zsSyntaxShield", "zsAutoApproveFixes"], (r) => {
         A.allowAiTools = !r || r.zsAllowAiTools !== false;
         A.allowAiSkills = !r || r.zsAllowAiSkills !== false;
-        syntaxShieldDefault = !r || r.zsSyntaxShield !== false;
+        syntaxShieldDefault = !!(r && r.zsSyntaxShield === true);
         autoApproveFixes = !!(r && r.zsAutoApproveFixes === true);
         if (r && Array.isArray(r.zsDisabledTools)) disabledTools = r.zsDisabledTools.filter((n) => typeof n === "string");
         if (r && Array.isArray(r.zsDisabledSkills)) disabledSkills = r.zsDisabledSkills.filter((n) => typeof n === "string");
@@ -4076,10 +4078,11 @@ return result`;
         const badge = s.badge
           ? `<span class="zs-site-rec zs-site-rec-${s.badge === "BEST" ? "best" : "recommended"}">${s.badge}</span>`
           : "";
-        const label = `<span class="zs-site-name"><span class="zs-site-name-line"><span>${s.name}</span>${badge}</span><span class="zs-site-host">${hostOf(s.url)}</span></span>`;
+        const wipTag = s.wip ? `<span class="zs-site-wip">WIP</span>` : "";
+        const label = `<span class="zs-site-name"><span class="zs-site-name-line"><span>${s.name}</span>${badge}${wipTag}</span><span class="zs-site-host">${hostOf(s.url)}</span></span>`;
         sites += current
-          ? `<div class="zs-site-opt zs-site-here">${label}<span class="zs-site-badge">active</span></div>`
-          : `<button class="zs-site-opt" data-u="${s.url}">${label}<span class="zs-site-go">&rarr;</span></button>`;
+          ? `<div class="zs-site-opt zs-site-here${s.wip ? " zs-site-opt-wip" : ""}">${label}<span class="zs-site-badge">active</span></div>`
+          : `<button class="zs-site-opt${s.wip ? " zs-site-opt-wip" : ""}" data-u="${s.url}">${label}<span class="zs-site-go">&rarr;</span></button>`;
       }
       let passes = "";
       for (const p of ROBUX_PASSES) {
@@ -4141,14 +4144,18 @@ return result`;
            <textarea id="zs-set-text" rows="4" placeholder="e.g. Always comment your Luau code. Prefer small modular scripts."></textarea>
            <div class="zs-set-row"><button id="zs-set-save">Save</button><span id="zs-set-status"></span></div>
          </section>
-         <section class="zs-menu-sec">
-           <div class="zs-sec-label"><span>MCP servers</span></div>
-           <div class="zs-menu-note">Roblox Studio is always connected (primary). Add another MCP server (e.g. Blender, Sketchfab) as an addon - the bridge restarts briefly to load it. Experimental.</div>
-           ${mcpList}
-           <div class="zs-mcp-sep"></div>
-           <input id="zs-mcp-name" class="zs-mcp-field" placeholder="Name, e.g. Blender" />
-           <input id="zs-mcp-url" class="zs-mcp-field" placeholder="Start command, e.g. npx -y @some/mcp-server" />
-            <div class="zs-set-row"><button id="zs-mcp-add">Add server</button><span id="zs-mcp-status"></span></div>
+          <section class="zs-menu-sec">
+            <div class="zs-sec-label"><span>MCP servers</span></div>
+            <div class="zs-menu-note">Roblox Studio is always connected (primary). Blender and GitHub are no longer pre-installed - add them below with one click (removable anytime).</div>
+            ${mcpList}
+            <div class="zs-set-row zs-mcp-presets">
+              <button type="button" class="zs-mcp-preset" data-name="Blender" data-command="npx -y blender-mcp">＋ Add Blender MCP</button>
+              <button type="button" class="zs-mcp-preset" data-name="GitHub" data-command="npx -y @modelcontextprotocol/server-github" data-env="GITHUB_PERSONAL_ACCESS_TOKEN">＋ Add GitHub MCP</button>
+            </div>
+            <div class="zs-mcp-sep"></div>
+            <input id="zs-mcp-name" class="zs-mcp-field" placeholder="Name, e.g. Sketchfab" />
+            <input id="zs-mcp-url" class="zs-mcp-field" placeholder="Start command, e.g. npx -y @some/mcp-server" />
+             <div class="zs-set-row"><button id="zs-mcp-add">Add server</button><span id="zs-mcp-status"></span></div>
           </section>
           <section class="zs-menu-sec">
             <div class="zs-sec-label"><span>Updates</span></div>
@@ -4250,9 +4257,33 @@ return result`;
         mcpBusy = on;
         mcpAddBtn.disabled = on;
         menuEl.querySelectorAll(".zs-mcp-remove").forEach((b) => (b.disabled = on));
+        menuEl.querySelectorAll(".zs-mcp-preset").forEach((b) => (b.disabled = on));
         mcpStatus.innerHTML = on
           ? `<span class="zs-mcp-spin-row"><span class="zs-mcp-spin"></span>${label || "Restarting bridge…"}</span>`
           : "";
+      }
+      // Shared add path: the manual form and the Blender/GitHub one-click
+      // presets both land here. Replaces/creates the server in config.json via
+      // the bridge (which restarts to load it), then re-renders the section.
+      async function addMcpServer(id, name, command, args, env) {
+        if (mcpBusy) return;
+        if (customMcpServers.some((s) => s.id === id)) {
+          mcpStatus.textContent = `${name} is already added`;
+          setTimeout(() => { if (!mcpBusy) mcpStatus.textContent = ""; }, 2000);
+          return;
+        }
+        setMcpBusy(true, "Restarting bridge…");
+        const r = await bg({ type: "add_server", server_id: id, command, args, env });
+        if (!r || !r.ok) {
+          setMcpBusy(false);
+          mcpStatus.textContent = (r && r.error) || `Couldn't add ${name}`;
+          setTimeout(() => { if (!mcpBusy) mcpStatus.textContent = ""; }, 2400);
+          return;
+        }
+        customMcpServers.push({ id, name, command });
+        saveCustomMcpServers();
+        await waitForBridgeBack(id);
+        buildMenu(); // rebuilds with the new server listed + spinner cleared
       }
 
       menuEl.querySelectorAll(".zs-mcp-remove").forEach((b) =>
@@ -4283,21 +4314,21 @@ return result`;
           setTimeout(() => { if (!mcpBusy) mcpStatus.textContent = ""; }, 1800);
           return;
         }
-        const id = mcpSlug(name);
         const { command: cmd, args } = splitCommand(command);
-        setMcpBusy(true, "Restarting bridge…");
-        const r = await bg({ type: "add_server", server_id: id, command: cmd, args });
-        if (!r || !r.ok) {
-          setMcpBusy(false);
-          mcpStatus.textContent = (r && r.error) || "Couldn't add server";
-          setTimeout(() => { if (!mcpBusy) mcpStatus.textContent = ""; }, 2400);
-          return;
-        }
-        customMcpServers.push({ id, name, command });
-        saveCustomMcpServers();
-        await waitForBridgeBack(id);
-        buildMenu(); // rebuilds with the new server listed + spinner cleared
+        await addMcpServer(mcpSlug(name), name, cmd, args);
       });
+
+      // One-click presets: Blender and GitHub used to ship pre-configured in
+      // the bridge's config; they now live here as opt-in addons, so each one
+      // can be added AND removed from the section above like any addon server.
+      menuEl.querySelectorAll(".zs-mcp-preset").forEach((b) =>
+        b.addEventListener("click", () => {
+          if (mcpBusy) return;
+          const name = b.dataset.name;
+          const { command: cmd, args } = splitCommand(b.dataset.command);
+          const env = b.dataset.env ? { [b.dataset.env]: "%" + b.dataset.env + "%" } : undefined;
+          addMcpServer(mcpSlug(name), name, cmd, args, env);
+        }));
 
       // ── Updates section: manual check (bridge if up, extension alone else) ──
       const updBtn = menuEl.querySelector("#zs-update-check");
@@ -5315,7 +5346,7 @@ return result`;
     }
 
     build();
-    return { setStatus, setStarted, setStarting, showStop, markStopping, inputCover, toast, banner, showImages, nudgeStart, updateStartGate, refreshSetup, getCustomPrompt, getAiAccess, getCustomMcpServers, openMenu: (toSupport) => openMenuFn && openMenuFn(toSupport), renderRefactor: renderRefactorSection, showRefactorToast };
+    return { setStatus, setStarted, setStarting, showStop, markStopping, inputCover, toast, banner, showImages, nudgeStart, updateStartGate, refreshSetup, getCustomPrompt, getAiAccess, getCustomMcpServers, openMenu: (toSupport) => openMenuFn && openMenuFn(toSupport), closeMenu: () => closeMenuFn && closeMenuFn(), renderRefactor: renderRefactorSection, showRefactorToast };
   })();
 
   // ── Live token + timer, shown ONLY on a tool call's chip detail. The
@@ -5572,6 +5603,11 @@ return result`;
     if (msg && msg.type === "zs-open-menu") {
       try { ui.openMenu(false); } catch (e) {} // from the popup's Settings button — opens at the top (Switch AI / custom prompt)
       sendResponse({ ok: true }); // lets the background distinguish this build from a stale tab
+    }
+    if (msg && msg.type === "zs-close-menu") {
+      // The popup's icon click closes the in-page Settings panel.
+      try { ui.closeMenu(); } catch (e) {}
+      sendResponse({ ok: true });
     }
     if (msg && msg.type === "zs-ext-update") {
       // Extension-side update found (no bridge running): badge + toast.

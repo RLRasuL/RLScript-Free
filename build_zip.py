@@ -17,7 +17,7 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "Compressed")
 EXT_DIR = os.path.join(HERE, "zeroscript-extension")
-SKIP_ROOTS = {".git", "Compressed", "__pycache__", "build_zip.py", "build.json", ".gitignore"}
+SKIP_ROOTS = {".git", "Compressed", "__pycache__", "build_zip.py", "build.json", ".gitignore", "assets", "logs"}
 SKIP_DIRS = {"__pycache__", ".git"}
 
 
