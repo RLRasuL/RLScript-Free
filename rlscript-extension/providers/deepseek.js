@@ -78,7 +78,10 @@ const RLProvider = (() => {
     stopped: /(arrêté|arrété|stopped|已停止|停止生成|已暂停)/i,
     expertMode: /expert|专家|专业/i,
     visionMode: /vision|视觉|图像|多模态/i,
-    deepThink: /pensée profonde|pensee profonde|profonde|réflexion|reflexion|deep ?think|深度思考|r1/i,
+    instantMode: /instant|rapide|快速/i,
+    flashMode: /flash|v4\.1|v41/i,
+    proMode: /\bpro\b|professional|旗舰/i,
+    deepThink: /pensée profonde|pensee profonde|profonde|réflexion|reflexion|deep ?think|深度思考|r1|think|思考|推理/i,
     searchMode: /recherche intelligente|smart search|search|web|搜索/i,
   };
 
@@ -98,6 +101,12 @@ const RLProvider = (() => {
     if (!item) return false;
     if (S.userMod && item.classList.contains(S.userMod)) return true;
     if (S.userBubble && item.querySelector(S.userBubble)) return true;
+    const role = (item.getAttribute("data-role") || item.getAttribute("data-author") || item.getAttribute("data-message-author-role") || "").toLowerCase();
+    if (role === "user" || role === "human") return true;
+    if (role === "assistant" || role === "model" || role === "bot") return false;
+    try {
+      if (item.querySelector('[data-role="user"],[data-author="user"],[data-message-author-role="user"]')) return true;
+    } catch {}
     return false;
   }
   const isAssistantItem = (item) => !!item && !isUserItem(item);
@@ -107,8 +116,10 @@ const RLProvider = (() => {
   // its reasoning are never detected, shown, or executed.
   function itemText(item) {
     if (isAssistantItem(item)) {
-      const mds = [...item.querySelectorAll(S.markdown)].filter((m) => !m.closest(S.thinking));
-      return mds.map((m) => m.textContent).join("\n");
+      const th = findThinking(item);
+      const mds = replyNodes(item).filter((m) => th ? !th.contains(m) : true);
+      if (mds.length) return mds.map((m) => m.textContent).join("\n");
+      return item.textContent || "";
     }
     return item.textContent || "";
   }
@@ -118,8 +129,9 @@ const RLProvider = (() => {
   // so a recycled (virtualized) node wearing a stale chip is never mis-detected.
   function classifyText(item, excludeSel) {
     if (isAssistantItem(item)) {
-      return [...item.querySelectorAll(S.markdown)]
-        .filter((m) => !m.closest(S.thinking) && !(excludeSel && m.closest(excludeSel)))
+      const th = findThinking(item);
+      return replyNodes(item)
+        .filter((m) => (th ? !th.contains(m) : true) && !(excludeSel && m.closest(excludeSel)))
         .map((m) => m.textContent).join("\n");
     }
     let t = "";
@@ -130,8 +142,15 @@ const RLProvider = (() => {
     return t;
   }
 
-  // ── DOM primitives ────────────────────────────────────────────────────────
-  const allItems = () => [...document.querySelectorAll(S.chatItem)];
+  const allItems = () => {
+    let items = [...document.querySelectorAll(S.chatItem)];
+    if (items.length) return items;
+    try {
+      items = [...document.querySelectorAll('[data-message-id],[data-turn-id],[data-role="user"],[data-role="assistant"]')].filter((e) => !e.closest("#rl-root"));
+      if (items.length) return items;
+    } catch {}
+    return [];
+  };
   const assistantItems = () => allItems().filter(isAssistantItem);
   const assistantCount = () => assistantItems().length;
   const userCount = () => allItems().filter(isUserItem).length;
@@ -145,33 +164,35 @@ const RLProvider = (() => {
     const site = [...document.querySelectorAll(S.editor)].filter(
       (e) => !e.closest("#rl-root")
     );
-    // Prefer the bottom composer over the inline message-EDIT box. When the user
-    // edits a turn, DeepSeek mounts a bordered .ds-textarea up in the turn list;
-    // it precedes the composer in DOM order, so the old "first textarea" pick
-    // returned it - and barMount() then dragged the whole RLScript bar INTO the
-    // editor. Skip any textarea inside that DS component; the composer isn't one.
-    return site.find((e) => !e.closest(S.msgEditBox)) || site[0] || null;
+    const ta = site.find((e) => !e.closest(S.msgEditBox)) || site[0] || null;
+    if (ta && ta.offsetParent !== null) return ta;
+    if (ta) return ta;
+    try {
+      const eds = [...document.querySelectorAll('[contenteditable="true"][role="textbox"],[contenteditable="true"]')].filter((e) => !e.closest("#rl-root"));
+      if (eds.length) return eds[eds.length - 1];
+    } catch {}
+    return ta;
   };
-  // The composer is a <textarea>, so its live content is .value (NOT textContent).
   const editorText = () => {
     const e = getEditor();
     if (!e) return "";
+    if (e.matches && e.matches('[contenteditable]')) return (e.innerText || e.textContent || "");
     return (e.value != null ? e.value : e.textContent || "");
   };
 
-  // Lock / unlock the user textarea during agent activity. `readonly` blocks
-  // interactive typing but is IGNORED by the native prototype setter used in
-  // setTextareaValue(), so the loop's own injections continue to work normally.
   function setInputLock(on) {
     const ed = getEditor();
     if (!ed) return;
+    const isCE = ed.matches && ed.matches('[contenteditable]');
     if (on) {
       if (!ed.dataset.rlPlaceholder) ed.dataset.rlPlaceholder = ed.getAttribute("placeholder") || "";
-      ed.setAttribute("readonly", "");
-      ed.setAttribute("placeholder", "⏳ Agent working… please wait");
+      if (isCE) ed.setAttribute("contenteditable", "false");
+      else ed.setAttribute("readonly", "");
+      try { ed.setAttribute("placeholder", "Agent working... please wait"); } catch {}
     } else {
-      ed.removeAttribute("readonly");
-      if (ed.dataset.rlPlaceholder != null) ed.setAttribute("placeholder", ed.dataset.rlPlaceholder);
+      if (isCE) ed.setAttribute("contenteditable", "true");
+      else ed.removeAttribute("readonly");
+      if (ed.dataset.rlPlaceholder != null) try { ed.setAttribute("placeholder", ed.dataset.rlPlaceholder); } catch {}
     }
   }
 
@@ -209,13 +230,18 @@ const RLProvider = (() => {
     return key != null ? key : null;
   }
 
-  // A "blank" conversation = no chat turns rendered yet.
   const chatIsEmpty = () => allItems().length === 0;
-
-  // A genuinely FRESH/new chat (not an existing conversation whose messages are
-  // still loading): DeepSeek only shows the Expert/Rapide mode selector on a
-  // brand-new empty chat.
-  const isFreshChat = () => chatIsEmpty() && !!document.querySelector(S.modeRadioGroup);
+  const isFreshChat = () => chatIsEmpty() && (!!document.querySelector(S.modeRadioGroup) || !!getEditor());
+  function findSendBtn() {
+    const b = document.querySelector(S.sendBtn);
+    if (b && b.offsetParent !== null) return b;
+    if (b) return b;
+    try {
+      const alts = [...document.querySelectorAll('button[aria-label*="Send" i],button[aria-label*="Stop" i],button[type="submit"]')].filter((e) => !e.closest("#rl-root"));
+      if (alts.length) return alts[alts.length - 1];
+    } catch {}
+    return b;
+  }
 
   // The whole composer "box" = the smallest ancestor that contains the input, the
   // send button AND (on a blank chat) the Expert/Rapide mode selector. The core's
@@ -223,7 +249,7 @@ const RLProvider = (() => {
   function composerFrame() {
     const ta = getEditor();
     if (!ta) return null;
-    const sb = document.querySelector(S.sendBtn);
+    const sb = findSendBtn();
     const group = document.querySelector(S.modeRadioGroup);
     const targets = [sb, group].filter(Boolean);
     let n = ta;
@@ -245,7 +271,7 @@ const RLProvider = (() => {
   function barMount() {
     const ta = getEditor();
     if (!ta) return null;
-    const send = document.querySelector(S.sendBtn);
+    const send = findSendBtn();
     const group = document.querySelector(S.modeRadioGroup);
     let box = ta.parentElement;
     while (box && box !== document.body) {
@@ -286,6 +312,7 @@ const RLProvider = (() => {
   }
   const findExpertRadio = () => findModeRadio("expert", RE.expertMode);
   const findVisionRadio = () => findModeRadio("vision", RE.visionMode);
+  const findInstantRadio = () => findModeRadio("default", RE.instantMode);
   const radioOn = (r) => !!r && r.getAttribute("aria-checked") === "true";
 
   // The user can CHOOSE the Vision tab; when they do we respect it (never force
@@ -303,30 +330,39 @@ const RLProvider = (() => {
   // once a value is known.
   let _visLatch = false, _visLatchSet = false, _visAt = 0, _visCache = false;
   function badgeVision() {
-    const els = [...document.querySelectorAll("div,span")].filter(
+    const els = [...document.querySelectorAll("div,span,button")].filter(
       (e) => e.childElementCount === 0 &&
-             /^(instant|expert|vision)$/i.test((e.textContent || "").trim()) &&
-             e.getBoundingClientRect().width > 0);        // skip the 0x0 hidden dup
+             /^(instant|expert|vision|flash|pro|v4\.1)$/i.test((e.textContent || "").trim()) &&
+             e.getBoundingClientRect().width > 0);
     if (!els.length) return null;
-    // Prefer the persistent TOP-LEFT header badge (smallest `top`): it names the
-    // CURRENT conversation's model and survives chat switches.
     els.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    return /vision/i.test(els[0].textContent || "");
+    const t = els[0].textContent || "";
+    if (/vision/i.test(t)) return true;
+    if (/flash|v4\.1/i.test(t)) return true;
+    if (/^pro$/i.test(t.trim())) return true;
+    return false;
+  }
+  function detectV41Native() {
+    try {
+      const btns = [...document.querySelectorAll('button,[role="radio"],[role="option"],[data-model-type],div,span')].slice(0, 400);
+      for (const b of btns) {
+        if (b.closest && b.closest("#rl-root")) continue;
+        const t = ((b.innerText || b.textContent) || "").slice(0, 40);
+        if (/v4\.1|deepseek-v4\.1|deepseek-flash/i.test(t)) return true;
+      }
+    } catch {}
+    return false;
   }
   function detectVision() {
     const now = Date.now();
-    if (now - _visAt < 400) return _visCache;      // throttle the DOM work
+    if (now - _visAt < 400) return _visCache;
     _visAt = now;
+    if (detectV41Native()) { _visLatch = true; _visLatchSet = true; return (_visCache = true); }
     const group = document.querySelector(S.modeRadioGroup);
-    if (group) {                                   // radios visible → authoritative
+    if (group) {
       const v = findVisionRadio();
       if (v) { _visLatch = radioOn(v); _visLatchSet = true; return (_visCache = _visLatch); }
     }
-    // Active conversation (radios gone): the per-conversation header BADGE is
-    // authoritative and must WIN over the latch. The latch holds the last composer
-    // selection, which belongs to a DIFFERENT chat after a switch - so trusting it
-    // first made a Vision conv read as non-Vision on revisit (screen_capture
-    // wrongly "unavailable", 25 tools). Badge → latch → false.
     const b = badgeVision();
     if (b != null) { _visLatch = b; _visLatchSet = true; return (_visCache = b); }
     if (_visLatchSet) return (_visCache = _visLatch);
@@ -338,16 +374,35 @@ const RLProvider = (() => {
     return [...document.querySelectorAll(S.deepThinkToggle)].find((t) => re.test(nodeText(t))) || null;
   }
 
+  function findModelButton(re) {
+    try {
+      const cands = [...document.querySelectorAll('button,[role="radio"],[role="option"],[data-model-type]')].filter((e) => !e.closest("#rl-root"));
+      return cands.find((r) => re.test(nodeText(r))) || null;
+    } catch { return null; }
+  }
   function composerModeState() {
     const expert = findExpertRadio();
     const deepThink = findToggleBy(RE.deepThink);
     const search = findToggleBy(RE.searchMode);
     const vision = findVisionRadio();
+    const instant = findInstantRadio();
+    const flash = findModelButton(RE.flashMode);
+    const pro = findModelButton(RE.proMode);
+    const v41 = detectV41Native();
+    const anyOld = !!(expert || vision || instant);
+    const anyNew = !!(flash || pro || v41);
     return {
       expertFound: !!expert,
       expertOn: radioOn(expert),
       visionFound: !!vision,
       visionOn: radioOn(vision),
+      instantFound: !!instant,
+      instantOn: radioOn(instant),
+      flashFound: !!flash,
+      proFound: !!pro,
+      v41Found: !!v41,
+      anyModelFound: !!(anyOld || anyNew),
+      editorFound: !!getEditor(),
       deepThinkFound: !!deepThink,
       deepThinkOn: !!deepThink && isPressedOn(deepThink),
       searchFound: !!search,
@@ -357,38 +412,22 @@ const RLProvider = (() => {
   }
 
   function enforceComposer(reason) {
-    // We only DRIVE the composer when given a reason (i.e. at session startup).
-    // Per-sweep calls pass no reason and are READ-ONLY: that leaves the user free
-    // to switch the model tab afterwards (e.g. Expert → Instant to turn thinking
-    // off) without RLScript reverting their choice every frame.
     if (!reason) return composerModeState();
     try {
-      // Pick the most powerful model for the agent: Expert (deep reasoning). In
-      // the current DeepSeek V4 UI, Expert IS the thinking model; the three tabs
-      // are Instant / Expert / Vision and there is no separate DeepThink toggle.
-      // EXCEPTION: if the user deliberately chose the Vision tab, RESPECT it (don't
-      // force Expert back) - that's the only way to feed DeepSeek images, and
-      // supportsVision then flips true so screen_capture is allowed for that turn.
-      if (!isVisionSelected()) {
+      if (!isVisionSelected() && !radioOn(findInstantRadio())) {
         const expert = findExpertRadio();
         if (expert && expert.getAttribute("aria-checked") !== "true") {
           try { expert.click(); } catch (e) { diag("mode_fallback", { reason, target: "expert", error: String(e && e.message || e) }); }
         }
       }
-
-      // Legacy DeepSeek UI only: if a separate DeepThink toggle still exists, turn
-      // it ON once. We do NOT hide it anymore, so thinking stays user-toggleable.
       const deepThink = findToggleBy(RE.deepThink);
       if (deepThink && isPressedOff(deepThink)) {
         try { deepThink.click(); } catch (e) { diag("mode_fallback", { reason, target: "deepThink", error: String(e && e.message || e) }); }
       }
-
-      // Search must be off (it derails the agent). Best-effort; absent in Expert.
       const search = findToggleBy(RE.searchMode);
       if (search && isPressedOn(search)) {
         try { search.click(); } catch (e) { diag("mode_fallback", { reason, target: "search", error: String(e && e.message || e) }); }
       }
-
       const state = composerModeState();
       diag("mode_enforce", { reason, ...state });
       return state;
@@ -404,15 +443,17 @@ const RLProvider = (() => {
     let state = composerModeState();
     for (let i = 0; i < 12; i++) {
       state = enforceComposer(reason);
-      // Ready as soon as the agent model is on (Expert, OR Vision if the user
-      // chose it) and Search is off. DeepThink is only required if a legacy toggle
-      // is actually present (V4 has none).
-      if ((state.expertOn || state.visionOn) && state.searchOff && (state.deepThinkOn || !state.deepThinkFound)) break;
+      if ((state.expertOn || state.visionOn || state.instantOn) && state.searchOff && (state.deepThinkOn || !state.deepThinkFound)) break;
+      if ((state.flashFound || state.proFound || state.v41Found) && state.searchOff) break;
+      if (!state.anyModelFound && state.editorFound) break;
       await sleep(120);
     }
     state = composerModeState();
     diag("mode_ready", { reason, ...state });
-    return { ...state, ready: state.expertOn || state.visionOn };
+    const oldReady = state.expertOn || state.visionOn || state.instantOn;
+    const newReady = (state.flashFound || state.proFound || state.v41Found) && state.searchOff;
+    const fallbackReady = !state.anyModelFound && state.editorFound;
+    return { ...state, ready: !!(oldReady || newReady || fallbackReady) };
   }
 
   // DeepSeek's footer button doubles as SEND (an upward arrow) and STOP (a
@@ -424,10 +465,29 @@ const RLProvider = (() => {
   // update if DeepSeek reskins the footer button.
   function isStopBtn(btn) {
     if (!btn) return false;
-    if (btn.querySelector("rect")) return true; // legacy stop square
+    if (btn.querySelector("rect")) return true;
+    const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
+    if (/stop|cancel|arrêt|停止|暂停/.test(aria)) return true;
+    if (/send|envoyer|发送/.test(aria)) return false;
     const p = btn.querySelector("path");
     if (!p) return false;
     return /^\s*M\s*[0-3][\s.]/.test(p.getAttribute("d") || "");
+  }
+  function findThinking(root) {
+    if (!root || !root.querySelector) return null;
+    try {
+      return root.querySelector(S.thinking) || root.querySelector('[class*="think"],[class*="reason"],[class*="thought"],[data-testid*="think"],[data-testid*="reason"]');
+    } catch { return null; }
+  }
+  function replyNodes(item) {
+    if (!item || !item.querySelectorAll) return [];
+    let mds = [...item.querySelectorAll(S.markdown)];
+    if (mds.length) return mds;
+    try {
+      mds = [...item.querySelectorAll('[class*="markdown"],[class*="prose"],[data-testid*="message-content"]')];
+      if (mds.length) return mds;
+    } catch {}
+    return [];
   }
 
   // ── Generation / completion detection ────────────────────────────────────
@@ -436,10 +496,10 @@ const RLProvider = (() => {
   // model output.
   function streamText(item) {
     if (!item) return "";
-    const think = item.querySelector(S.thinking);
+    const think = findThinking(item);
     const thinkTxt = think ? think.textContent || "" : "";
-    const replyTxt = [...item.querySelectorAll(S.markdown)]
-      .filter((m) => !m.closest(S.thinking) && !m.closest(".rl-chip"))
+    const replyTxt = replyNodes(item)
+      .filter((m) => !m.closest(".rl-chip"))
       .map((m) => m.textContent)
       .join("");
     return thinkTxt + "\n" + replyTxt;
@@ -470,14 +530,14 @@ const RLProvider = (() => {
   // answer yet and has NOT been halted.
   function reasoningInProgress(item) {
     if (!item) return false;
-    const think = item.querySelector(S.thinking);
+    const think = findThinking(item);
     const thinkTxt = think ? (think.textContent || "") : "";
-    if (!thinkTxt.trim().length) return false; // not reasoning
-    const replyLen = [...item.querySelectorAll(S.markdown)]
-      .filter((m) => !m.closest(S.thinking) && !m.closest(".rl-chip"))
+    if (!thinkTxt.trim().length) return false;
+    const replyLen = replyNodes(item)
+      .filter((m) => (think ? !think.contains(m) : true) && !m.closest(".rl-chip"))
       .reduce((n, m) => n + (m.textContent || "").length, 0);
-    if (replyLen !== 0) return false; // already answering
-    if (turnHalted(item)) return false; // halted (manual / forced stop)
+    if (replyLen !== 0) return false;
+    if (turnHalted(item)) return false;
     return true;
   }
 
@@ -486,16 +546,16 @@ const RLProvider = (() => {
   // word in its reasoning by requiring the marker OUTSIDE the reasoning text.
   function turnHalted(item) {
     if (!item) return false;
-    const think = item.querySelector(S.thinking);
+    const think = findThinking(item);
     const thinkTxt = think ? (think.textContent || "") : "";
     return RE.stopped.test(item.textContent || "") && !RE.stopped.test(thinkTxt);
   }
 
   // Growth-tolerant "is a generation in progress?" - the response watcher's signal.
   function isGenerating() {
-    if (document.querySelector(S.generating)) return true; // spin-up spinner
-    const btn = document.querySelector(S.sendBtn);
-    if (isStopBtn(btn)) return true;                       // answer phase: stop square
+    if (document.querySelector(S.generating)) return true;
+    const btn = findSendBtn();
+    if (isStopBtn(btn)) return true;
     sampleStream();
     if (reasoningInProgress(lastAssistant())) return grewWithin(timings.REASON_IDLE_MS);
     return grewWithin(timings.GEN_IDLE_MS);
@@ -506,17 +566,14 @@ const RLProvider = (() => {
   // linger after the answer ends.
   function isBusyNow() {
     if (document.querySelector(S.generating)) return true;
-    const btn = document.querySelector(S.sendBtn);
+    const btn = findSendBtn();
     if (isStopBtn(btn)) return true;
     sampleStream();
-    if (!reasoningInProgress(lastAssistant())) return false; // answer present / stopped → free
-    return grewWithin(timings.REASON_IDLE_MS); // reasoning: live only while it keeps growing
+    if (!reasoningInProgress(lastAssistant())) return false;
+    return grewWithin(timings.REASON_IDLE_MS);
   }
-
-  // HARD signal only (the visible stop-square): never true just because a
-  // conversation (re)loads or the user scrolls. Used for the Stop button.
   function isHardGenerating() {
-    return isStopBtn(document.querySelector(S.sendBtn));
+    return isStopBtn(findSendBtn());
   }
 
   // ── Diagnostic breakdown of isGenerating() ────────────────────────────────
@@ -535,7 +592,7 @@ const RLProvider = (() => {
   function genDebug() {
     try {
       sampleStream();
-      const btn = document.querySelector(S.sendBtn);
+      const btn = findSendBtn();
       const path = btn && btn.querySelector("path");
       const rp = btn && btn.querySelector("rect");
       return {
@@ -557,9 +614,9 @@ const RLProvider = (() => {
     try {
       const it = lastAssistant();
       if (!it) return { th: 0, rp: 0 };
-      const th = it.querySelector(S.thinking);
-      const rp = [...it.querySelectorAll(S.markdown)]
-        .filter((m) => !m.closest(S.thinking) && !m.closest(".rl-chip"))
+      const th = findThinking(it);
+      const rp = replyNodes(it)
+        .filter((m) => (th ? !th.contains(m) : true) && !m.closest(".rl-chip"))
         .reduce((n, m) => n + (m.textContent || "").length, 0);
       return { th: th ? (th.textContent || "").trim().length : 0, rp };
     } catch { return {}; }
@@ -583,8 +640,9 @@ const RLProvider = (() => {
   function readAssistant() {
     const item = lastAssistant();
     if (!item) return { present: false, reply: "", thinking: "", item: null };
-    const th = item.querySelector(`${S.thinking} ${S.markdown}`);
-    const mds = [...item.querySelectorAll(S.markdown)].filter((m) => !m.closest(S.thinking));
+    const thWrap = findThinking(item);
+    const th = thWrap ? thWrap.querySelector(S.markdown) || thWrap : null;
+    const mds = replyNodes(item).filter((m) => thWrap ? !thWrap.contains(m) : true);
     return {
       present: true,
       reply: mds.map((m) => m.textContent).join("\n").trim(),
@@ -607,6 +665,14 @@ const RLProvider = (() => {
   // the native prototype setter so React's onChange fires, then dispatch an input
   // event, then click the primary send button (Enter inserts a newline).
   function setTextareaValue(el, v) {
+    if (el.matches && el.matches('[contenteditable]')) {
+      el.focus();
+      try { document.execCommand("selectAll", false); } catch {}
+      try { document.execCommand("insertText", false, v); } catch {}
+      if ((el.innerText || "") !== v) el.textContent = v;
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: v }));
+      return;
+    }
     const proto = window.HTMLTextAreaElement && window.HTMLTextAreaElement.prototype;
     const setter = proto && Object.getOwnPropertyDescriptor(proto, "value");
     if (setter && setter.set) setter.set.call(el, v);
@@ -624,7 +690,7 @@ const RLProvider = (() => {
   // are the SAME button, so we refuse to click whenever a generation is live.
   function clickSendButton() {
     if (isBusyNow()) return false;
-    const btn = document.querySelector(S.sendBtn);
+    const btn = findSendBtn();
     if (btn && !isStopBtn(btn) && btn.getAttribute("aria-disabled") !== "true") {
       btn.click();
       return true;
@@ -679,18 +745,16 @@ const RLProvider = (() => {
       // DOM node (the file-input path in attachImages does the real upload).
       const t0 = Date.now();
       while (Date.now() - t0 < 25000) {
-        const btn = document.querySelector(S.sendBtn);
+        const btn = findSendBtn();
         if (btn && !isStopBtn(btn) && btn.getAttribute("aria-disabled") !== "true") {
           try { btn.click(); } catch {}
         }
-        // Editor cleared = the message left; stop square up = generation started.
         if (await waitFor(() => editorText().trim() === "" || isHardGenerating(), 1200)) return;
       }
       return;
     }
-    // Text-only: wait for React to re-enable the send button, then click.
     await waitFor(() => {
-      const btn = document.querySelector(S.sendBtn);
+      const btn = findSendBtn();
       return btn && btn.getAttribute("aria-disabled") !== "true" && !isStopBtn(btn);
     }, 800);
     if (!clickSendButton() && !isBusyNow()) {
@@ -698,10 +762,8 @@ const RLProvider = (() => {
     }
   }
 
-  // Click DeepSeek's stop only if it is actually in the stop state (<rect>), so
-  // we never accidentally re-trigger a send.
   function stopGeneration() {
-    const b = document.querySelector(S.stopBtn);
+    const b = findSendBtn() || document.querySelector(S.stopBtn);
     if (isStopBtn(b)) try { b.click(); } catch {}
   }
 
@@ -710,7 +772,7 @@ const RLProvider = (() => {
     try {
       for (const el of document.querySelectorAll(S.errorSurfaces)) {
         if (el.offsetParent === null) continue;
-        if (el.closest(S.chatItem)) continue; // inside a chat turn ⇒ model content, not UI
+        try { if (el.closest(S.chatItem)) continue; } catch {}
         const t = (el.innerText || "").trim();
         if (t.length > 8 && t.length < 600 && RE.contextLimit.test(t)) return t.slice(0, 240);
       }
@@ -743,11 +805,9 @@ const RLProvider = (() => {
   // uploads and the send.
   const attachThumbs = () => {
     try {
+      const items = allItems();
       return [...document.querySelectorAll("img")].filter(
-        (im) => !im.closest(S.chatItem) &&
-          // blob: = pending local preview; the alt (our "rlscript_..." filename)
-          // survives once the upload replaces the blob src with a CDN url, so the
-          // idempotency/presence checks keep matching after upload completes.
+        (im) => !items.some((it) => it.contains(im)) &&
           (/^blob:/.test(im.getAttribute("src") || "") || /^rlscript_/.test(im.getAttribute("alt") || "")));
     } catch { return []; }
   };
@@ -878,8 +938,9 @@ const RLProvider = (() => {
     const hasStart = (t) => P.LUA_START_RE.test(t) || t.includes("###mcp_tool###");
     const hasEnd = (t) => P.LUA_END_RE.test(t) || t.includes("###end_mcp_tool###") || t.includes("###end-mcp_tool###");
     const isJson = (t) => /\{\s*"(?:command|tool)"\s*:/.test(t);
-    // The reply markdown containers (never the reasoning/think area).
-    const containers = [...item.querySelectorAll(S.markdown)].filter((m) => !m.closest(S.thinking));
+    const th = findThinking(item);
+    let containers = replyNodes(item).filter((m) => th ? !th.contains(m) : true);
+    if (!containers.length) containers = [item];
     if (!containers.length) return null;
     let parent = null, ref = null;
     for (const container of containers) {
@@ -934,10 +995,7 @@ const RLProvider = (() => {
     thinkingSel: S.thinking,
     init({ diag: d } = {}) {
       if (d) diag = d;
-      // Version beacon: stamp the loaded build onto <html> so a reload can be
-      // confirmed from the page (read document.documentElement.dataset.rlDsVer).
-      // BUMP DS_VER on meaningful deepseek.js changes worth verifying live.
-      try { document.documentElement.setAttribute("data-rl-ds-ver", "2026-07_vision-badge-priority"); } catch {}
+      try { document.documentElement.setAttribute("data-rl-ds-ver", "2026-09_v41-tolerant"); } catch {}
     },
     // turns
     allItems, isUserItem, isAssistantItem, itemText, classifyText,
