@@ -128,19 +128,19 @@ const RL = (() => {
   // separately for Roblox-authored and personal Studio skills.
   const BUILTIN_SKILLS = Object.freeze({
     "script-analysis-fix": Object.freeze({
-      description: "Run a text-first final validation pass after Roblox code changes and fix actionable Luau errors before finishing.",
+      description: "Final validation pass after Roblox code changes: read the real Script Analysis window with screen_capture and fix real Luau errors before finishing.",
       body: [
         "# Script Analysis Fix",
         "",
         "This is a built-in RLScript bridge skill loaded with `use_skill`; it does not require a personal Roblox Studio skill with the same name.",
         "",
-        "Use this as the final pass after any Roblox code change, or when the user asks to inspect or fix Script Analysis issues.",
+        "Use this as the final pass after any Roblox code change, or when the user asks to inspect or fix Script Analysis issues. The only source of truth is Roblox Studio's Script Analysis window, read visually. Never invent, guess, or compute diagnostics.",
         "",
-        "1. Call `script_analysis` first. It is a text-first RLScript check that compiles every Luau source in the requested scope and returns structured syntax diagnostics plus conservative warnings such as unknown globals. It still does not expose Roblox Studio's complete lint/type-warning list, because the current Roblox MCP API has no structured getter for the built-in Script Analysis panel.",
-        "2. If the result has zero errors and zero warnings, make no edits and report that this check is clean; a second check is not needed because nothing changed.",
-        "3. If the result has one or more errors or warnings, use `script_read` to read each affected script, then make the smallest behavior-preserving correction with `multi_edit`. After making edits, call `script_analysis` again to verify that the fixes were correct. Repeat the read/fix/recheck cycle only while new errors or warnings remain.",
-        "4. Call `get_console_output` only when runtime errors or warnings matter to the requested change; keep runtime output separate from static syntax diagnostics.",
-        "5. Never claim that the full Script Analysis window is clean when only the text check ran. If the user needs Roblox's editor-only lint, type, or warning details, explain that limitation and ask for the panel text or use `screen_capture` only when the current AI can actually see images.",
+        "1. Call `script_analysis` first and follow exactly what it returns.",
+        "2. If the window is clean, make no edits and report that the Script Analysis window is clean; a second check is not needed because nothing changed.",
+        "3. If the window shows errors or warnings, use `script_read` to read each affected script, then make the smallest behavior-preserving correction with `multi_edit`. After making edits, screen_capture the window again to verify the fixes. Repeat the read/fix/recheck cycle only while new errors or warnings remain.",
+        "4. Call `get_console_output` only when runtime errors or warnings matter to the requested change; keep runtime output separate from Script Analysis window diagnostics.",
+        "5. If the Script Analysis window is closed, tell the user in one short sentence to open Window -> Script -> Analysis in Roblox Studio, then stop until they confirm it is open.",
         "6. Use Luau and Roblox APIs, preserve existing behavior, avoid unrelated edits, and report unresolved diagnostics clearly."
       ].join("\n")
     }),
@@ -266,7 +266,7 @@ const RL = (() => {
     }),
     Object.freeze({
       name: "script_analysis",
-      description: "Run a text-first Luau syntax and conservative warning check over scripts and return structured diagnostics; full Roblox editor lint/type warnings are not exposed by the current MCP API.",
+      description: "Read Roblox Studio's real Script Analysis window with screen_capture and fix what it shows. Never computes diagnostics itself; if the window is closed it tells the user to open Window -> Script -> Analysis.",
       inputSchema: Object.freeze({
         type: "object",
         properties: Object.freeze({
@@ -439,7 +439,7 @@ RULES:
 - A short note around a command is fine, but NEVER end a turn by only announcing a command ("let me check...", "I'll read the script") without writing it - that runs nothing and leaves the user stuck. Either write the command now, or give your final answer.
 - Final answers: plain text only, no Markdown or code fences. Do ONLY what was asked - fewest commands, no unrequested double-checks. When the task is done or the user is satisfied ("thanks", "perfect"...), reply ONE short sentence and STOP.
  - Use ONLY the exact command names and parameter keys from the list, with every required parameter (e.g. multi_edit needs "datamodel_type": "Edit"; "... is required" means you omitted one). Do NOT use ${siteName}'s own features (web search, connectors...) unless the user explicitly asks.
-${allowAiSkills ? " - AFTER ANY ROBLOX CODE CHANGE: load `script-analysis-fix` with `use_skill`, follow it, and run its text-first `script_analysis` check before giving the final answer. It reports syntax errors plus conservative warnings such as unknown globals. If the user specifically asks for the full Studio Analysis window's lint/type warnings, explain that the current MCP does not expose those diagnostics as text instead of pretending this check covered every panel diagnostic." : " - ROBLOX CODE CHECKS: the user disabled skills, so do not load a skill. If tools are enabled, you may still use `script_analysis` when explicitly requested, but do not claim a skill workflow ran."}
+${allowAiSkills ? " - AFTER ANY ROBLOX CODE CHANGE: load `script-analysis-fix` with `use_skill` and follow it before giving the final answer. It reads the real Script Analysis window with `screen_capture`; it never invents diagnostics. If the window is closed, tell the user in one short sentence to open Window -> Script -> Analysis in Roblox Studio, then stop until they confirm it is open." : " - ROBLOX CODE CHECKS: the user disabled skills, so do not load a skill. If tools are enabled, you may still use `script_analysis` when explicitly requested, but do not claim a skill workflow ran."}
 ${allowAiSkills ? " - VISUAL PLAYTESTS: when the task involves gameplay, UI, camera, or player input, load `playtest-visual` with `use_skill`. Use `screen_capture` after starting Play and after meaningful input whenever that command is listed. Never claim a visual result from blind input; if `screen_capture` is absent, stop the visual test and explain that the Roblox Studio MCP connection/build needs updating or reconnecting." : " - VISUAL PLAYTESTS: skills are disabled. If tools are enabled and the task involves gameplay, UI, camera, or player input, use `screen_capture` after starting Play and after meaningful input whenever that command is listed, but do not load a skill. Never claim a visual result from blind input."}
  - execute_luau: wrap code in BOTH markers ###LUA### ... ###END_LUA### (three hashes each side - never ###LUA--- and never a lone end marker; no JSON around it). Bare ###LUA### targets "Edit" and only works when Studio is NOT playing. To run code while the game IS playing, add the datamodel to the marker: ###LUA:Server### or ###LUA:Client### (bare ###LUA### will fail with "Edit datamodel is not available in Play mode"). Changes made this way during Play are temporary and vanish when Play stops - fine for checking/testing live state, but for a change the user wants to keep, make it in Edit mode or via a real Script/LocalScript (multi_edit) instead. Use \`return\` for output (print is NOT captured). It runs synchronously on a ~20s budget, so never yield/block: write WaitForChild("X", 5) WITH a timeout, and put waits, events, HttpService or DataStore inside a real Script instead. (Per-command tips are in the list_commands output.)
 - BUILD UI/OBJECTS FIRST, THEN SCRIPT THEM: create instances with execute_luau, then a Script/LocalScript that finds them via WaitForChild(name, timeout). Use runtime Instance.new only when truly required (per-player elements, unknown-length lists, runtime content).
@@ -568,8 +568,8 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
     screen_capture:
       "Captures the current Roblox Studio viewport and returns image data. Use it during Play mode after meaningful input so a vision-capable AI can verify the actual result. Follow the exact optional parameters shown by list_commands.",
     script_analysis:
-      "Text-first syntax and conservative warning validation for Luau sources. It returns structured errors and warnings such as unknown globals, while explicitly reporting that Roblox's editor-only lint/type diagnostics are not fully exposed by the current MCP API. " +
-      "Use it before and after fixes; do not describe its result as a complete Script Analysis window count.",
+      "Reads Roblox Studio's real Script Analysis window with screen_capture and fixes what it shows. It never computes or guesses diagnostics. " +
+      "If the window is closed it tells the user to open Window -> Script -> Analysis; use it before and after fixes.",
     scan_script:
       "Read-only scan over the scripts under a scope. Returns script → line → rule → snippet matches; a rule id is the FIRST string in each match. " +
       "Run it BEFORE fix_script to preview, or pass a \"rules\" subset to scan only what the user asked. It never writes - safe to run anytime.",
