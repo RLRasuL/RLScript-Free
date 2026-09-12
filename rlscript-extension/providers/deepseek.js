@@ -362,11 +362,12 @@ const RLProvider = (() => {
     if (group) {
       const v = findVisionRadio();
       if (v) { _visLatch = radioOn(v); _visLatchSet = true; return (_visCache = _visLatch); }
+      return (_visCache = false);
     }
     const b = badgeVision();
     if (b != null) { _visLatch = b; _visLatchSet = true; return (_visCache = b); }
     if (_visLatchSet) return (_visCache = _visLatch);
-    return (_visCache = false);
+    return (_visCache = !!getEditor());
   }
   const isVisionSelected = () => detectVision();
 
@@ -995,7 +996,7 @@ const RLProvider = (() => {
     thinkingSel: S.thinking,
     init({ diag: d } = {}) {
       if (d) diag = d;
-      try { document.documentElement.setAttribute("data-rl-ds-ver", "2026-09_v41-tolerant"); } catch {}
+      try { document.documentElement.setAttribute("data-rl-ds-ver", "2026-09_v41-vision"); } catch {}
     },
     // turns
     allItems, isUserItem, isAssistantItem, itemText, classifyText,
