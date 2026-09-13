@@ -23,6 +23,7 @@ const RL = (() => {
       return "edit";
     if (n === "screen_capture") return "screen";
     if (/^generate_/.test(n)) return "generate";
+    if (n === "subagent") return "roblox";
     if (n.startsWith("roblox") || /studio|luau|instance|workspace/i.test(n)) return "roblox";
     return "tool";
   }
@@ -562,6 +563,11 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
       "Example: {\"datamodel_type\":\"Client\",\"actions\":[{\"action\":\"mouseButtonClick\",\"mouse_button\":\"left\",\"instance_path\":\"LocalPlayer.PlayerGui.Menu.PlayBtn\"}]}.",
     skill:
       "Loads one Roblox Studio-authored or personal skill by its exact skill_name. Use it once before a matching workflow, then follow the returned instructions. " +
+    subagent:
+      "Launches a specialized Studio subagent that works a task autonomously and returns one final result - explore (codebase investigation, game-state questions) or playtest (runs gameplay scenarios, verifies outcomes). " +
+      "Read the exact parameter names from list_commands (subagent type + task description) - do NOT guess them. " +
+      "Use explore instead of manually crawling search_game_tree for broad recon questions; use playtest only for real gameplay verification, never as a substitute for screen_capture checks. " +
+      "A call can run long and the normal 120s budget applies: on a timeout ERROR, retry with a narrower task instead of repeating it verbatim.",
       "If a requested personal skill is not available, report that plainly and use the closest RLScript skill or normal commands.",
     use_skill:
       "Loads one local RLScript skill by exact name. Use script-analysis-fix after Roblox code changes and playtest-visual for gameplay/UI testing with visual checkpoints.",

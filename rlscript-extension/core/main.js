@@ -328,6 +328,7 @@
   // After the AI finishes a turn that wrote/edited scripts: scan the scripts it
   // touched (unless a fix_script proposal/scan already covered them) and show
   // the "Refactors available" notification with Apply/Dismiss buttons.
+    if (appHiddenTools().has("scan_script")) return; // app build without scan/fix UI
   async function refactorAfterTurn(touched) {
     if (!touched || !touched.length) return;
     refactorState.aiTouched = [];
@@ -917,23 +918,37 @@
     });
   }
 
-  // 'subagent' is always blocked (long-running, hangs the loop). 'screen_capture'
-  // is only blocked on providers whose underlying model can't see images
-  // (P.supportsVision === false) - see providers/*.js for the per-site flag.
-  // Both are filtered out of the advertised command list AND refused in runTool.
+  // 'screen_capture' is only blocked on providers whose underlying model can't
+  // see images (P.supportsVision === false) - see providers/*.js for the
+  // per-site flag. It is filtered out of the advertised command list AND
+  // refused in runTool. (Roblox's own `subagent` tool used to be blocked here
+  // as long-running, but it is now supported like any Studio command: the
+  // normal 120s budget applies and a timeout surfaces as a regular ERROR the
+  // model can retry from.)
   // Addon servers (Blender, Sketchfab, ...) can ALSO ship an image-returning
   // tool under any name we don't know in advance - rather than guess names,
   // any tool result carrying images is caught generically at the point results
   // are handled (see the `r.images.length` branch) and turned into a plain
   // error on non-vision providers, so nothing needs to be predicted here.
-  const ALWAYS_BLOCKED_TOOLS = new Set(["subagent"]);
+  const ALWAYS_BLOCKED_TOOLS = new Set();
   const VISION_TOOLS = new Set(["screen_capture"]);
   const bareToolName = (name) => (name && name.includes("/") ? name.split("/").pop() : name) || "";
   const LOCAL_VIRTUAL_TOOLS = (RL.VIRTUAL_TOOLS || []).map((tool) => ({
     ...tool,
     server: "roblox",
     rlscriptVirtual: true,
+  // APP-ONLY strip list (Electron harness): the app sets
+  // window.__RL_APP_HIDE_TOOLS (array of bare tool names) in page-shim before
+  // injection to drop extension extras it doesn't ship (scan/fix UI, ask_ai).
+  // Never set in the browser build - zero behavior change there.
+  const appHiddenTools = () => {
+    try {
+      const v = window.__RL_APP_HIDE_TOOLS;
+      return new Set(Array.isArray(v) ? v.filter((n) => typeof n === "string") : []);
+    } catch { return new Set(); }
+  };
   }));
+    if (appHiddenTools().has(tool.name)) return false;
   const enabledLocalVirtualTools = () => LOCAL_VIRTUAL_TOOLS.filter((tool) => {
     if (tool.name === "use_skill") return A.allowAiSkills;
     if (["script_analysis", "scan_script", "fix_script", "ask_ai"].includes(tool.name)) return A.allowAiTools;
@@ -1948,7 +1963,10 @@ return result`;
       if (disabledSkills.includes(reqSkill)) {
         return `ERROR: the skill "${reqSkill}" is disabled by the user. Do not load it again until the user re-enables it in the RLScript menu.`;
       }
-    } else if (disabledTools.includes(accessBareName || name)) {
+    } else if (disabledTools.includes(accessBareName || name) || appHiddenTools().has(accessBareName)) {
+      if (appHiddenTools().has(accessBareName)) {
+        return `ERROR: '${accessBareName || name}' is not available in this app. Do NOT call it again - complete the task with the other commands.`;
+      }
       return `ERROR: the '${accessBareName || name}' command is disabled by the user. Do NOT call it again until the user re-enables it in the RLScript menu.`;
     }
     // NEVER execute while the AI tab is backgrounded/minimized. This is the single
@@ -3853,7 +3871,7 @@ return result`;
       const allAccessTools = [...new Set([
         ...(A.toolList || []).map((t) => bareToolName(t.name)).filter(Boolean),
         ...LOCAL_VIRTUAL_TOOLS.map((t) => t.name),
-      ])].sort();
+      ])].sort().filter((n) => !appHiddenTools().has(n));
       const allAccessSkills = [...new Set([
         ...Object.keys(RL.BUILTIN_SKILLS || {}),
         ...Object.keys(RL.NATIVE_SKILLS || {}),
